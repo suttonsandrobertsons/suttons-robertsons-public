@@ -1,0 +1,17 @@
+{
+	"name": "suttons-robertsons-client",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"build": "mkdir -p dist && esbuild loader.js --bundle --minify --outfile=dist/loader.js",
+		"dev": "node dev.mjs",
+		"postinstall": "git config core.hooksPath .githooks",
+		"test": "vitest run",
+		"test:watch": "vitest"
+	},
+	"devDependencies": {
+		"esbuild": "^0.25.2",
+		"jsdom": "^29.1.1",
+		"vitest": "^4.1.8"
+	}
+}

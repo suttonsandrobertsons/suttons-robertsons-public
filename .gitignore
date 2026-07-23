@@ -1,0 +1,17 @@
+.env.local
+node_modules/
+.pnpm-store/
+.DS_Store
+
+# Local reference/scratch (not part of the repo)
+form-scope/
+launch-plan/
+test-output/
+outputs/
+loan-calculator.png
+
+dev/
+assets/brand-logos/
+figma-import-fixes/
+tmp_sitemap_pages/
+table-extracts/

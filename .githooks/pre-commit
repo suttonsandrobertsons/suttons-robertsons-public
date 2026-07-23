@@ -1,0 +1,3 @@
+#!/bin/sh
+# Rebuild the bundle and stage it so dist/loader.js never drifts from src/.
+npm run build && git add dist/loader.js

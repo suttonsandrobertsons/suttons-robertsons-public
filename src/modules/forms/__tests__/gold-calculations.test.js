@@ -1,0 +1,1093 @@
+import { describe, expect, it, afterEach } from 'vitest'
+import { goldCalculationTestHooks } from '../gold.js'
+import { formConfig } from '../config.js'
+
+const { normalizePricingRows, findPricingRow, calculateEstimate, calculateGoldSummary, persistSummary, persistItemSlotFields, getFieldWrappers, getItem, updateRepeaterState, getOfferRatio, calculatePurchaseValue, calculateLoanValue, getSpotOfferMultiplier, getDisplayValue, getPurityRatio, mround, roundWholePound, isManualRow, renderFormOutputs } = goldCalculationTestHooks
+
+const pricingRows = normalizePricingRows([
+  { itemType: 'Jewellery', label: '9ct jewellery', purityCarats: '9', weightGrams: '10' },
+  { itemType: 'Jewellery', label: '18ct jewellery', purityCarats: '18', weightGrams: '10' },
+  { itemType: 'Jewellery', label: '22ct jewellery', purityCarats: '22', weightGrams: '10' },
+  { itemType: 'Bar', bullionName: '1g_bar', label: '1g Gold Bar', purityPercent: '99.99', weightGrams: '1' },
+  { itemType: 'Bar', bullionName: 'pure_1g_bar', label: 'Pure 1g Gold Bar', purityPercent: '100', weightGrams: '1' },
+  { itemType: 'Coin', bullionName: 'sovereign', label: 'Sovereign', purityPercent: '91.67', weightGrams: '7.99' },
+])
+
+const quote = {
+  spotGbpPerGram: 98.16,
+  updatedAt: 1781172000,
+  source: 'test',
+}
+
+function summaryFor(items, enquiryType = 'loan') {
+  const estimates = items.map((item) => {
+    return calculateEstimate(item, findPricingRow(pricingRows, item), quote.spotGbpPerGram)
+  })
+  return calculateGoldSummary(estimates, enquiryType, quote)
+}
+
+describe('gold calculator financials', () => {
+  it('finds field wrappers and rewrites repeater radio names without relying on globals', () => {
+    const form = document.createElement('form')
+    form.innerHTML = `
+      <div data-form-gold-item-list>
+        <div data-form-gold-item>
+          <div data-form-field="item_type">
+            <input id="item_type_jewellery" type="radio" name="item_type" value="jewellery" checked>
+            <label for="item_type_jewellery">Jewellery</label>
+            <input id="item_type_coin" type="radio" name="item_type" value="coin">
+            <label for="item_type_coin">Coin</label>
+          </div>
+          <div data-form-field="metal_type" data-form-show-if="item_type = jewellery">
+            <input id="metal_type" name="metal_type" value="18">
+            <label for="metal_type">Carat</label>
+          </div>
+          <div data-form-field="weight_grams" data-form-show-if="item_type = jewellery OR bullion_name = other">
+            <input id="weight_grams" name="weight_grams" value="10">
+            <label for="weight_grams">Weight</label>
+          </div>
+          <div data-form-field="bullion_name" data-form-show-if="item_type = coin">
+            <select id="bullion_name" name="bullion_name">
+              <option value=""></option>
+              <option value="sovereign">Sovereign</option>
+            </select>
+            <label for="bullion_name">Coin type</label>
+          </div>
+          <div data-form-field="bullion_name" data-form-show-if="item_type = bar">
+            <select id="bullion_name_bar" name="bullion_name">
+              <option value=""></option>
+              <option value="1g_bar">1g Bar</option>
+            </select>
+            <label for="bullion_name_bar">Bar type</label>
+          </div>
+          <div data-form-gold-quantity>
+            <input id="quantity" name="quantity" value="2" data-form-gold-quantity-input>
+            <label for="quantity">Quantity</label>
+          </div>
+        </div>
+      </div>
+    `
+
+    const item = form.querySelector('[data-form-gold-item]')
+    const wrappers = getFieldWrappers(item, 'item_type')
+
+    expect(wrappers).toHaveLength(1)
+    expect(() => updateRepeaterState({ form })).not.toThrow()
+    expect(form.querySelector('[value="jewellery"]').name).toBe('gold_item_type_1')
+    expect(form.querySelector('[value="jewellery"]').id).toBe('gold_item_type_1_jewellery')
+    expect(form.querySelector('label').getAttribute('for')).toBe('gold_item_type_1_jewellery')
+    expect(form.querySelector('[data-form-show-if]').getAttribute('data-form-show-if')).toBe('gold_item_type_1 = jewellery')
+    expect(form.querySelector('[data-form-field="metal_type"] input').name).toBe('gold_metal_type_1')
+    expect(form.querySelector('[data-form-field="metal_type"] input').id).toBe('gold_metal_type_1')
+    expect(form.querySelector('label[for="gold_metal_type_1"]')).toBeTruthy()
+    expect(form.querySelector('[data-form-field="weight_grams"]').getAttribute('data-form-show-if')).toBe('gold_item_type_1 = jewellery OR gold_bullion_name_1_coin = other OR gold_bullion_name_1_bar = other')
+    expect(form.querySelector('[data-form-field="weight_grams"] input').name).toBe('gold_weight_grams_1')
+    expect(form.querySelector('[data-form-gold-quantity-input]').name).toBe('gold_quantity_1')
+    expect(Array.from(form.querySelectorAll('[data-form-field="bullion_name"] select')).map((select) => select.name)).toEqual([
+      'gold_bullion_name_1_coin',
+      'gold_bullion_name_1_bar',
+    ])
+    expect(getItem(form, item)).toMatchObject({
+      itemType: 'jewellery',
+      metalType: '18',
+      quantity: '2',
+      weightGrams: '10',
+    })
+  })
+
+  it('keeps repeated live controls uniquely named and labelled across multiple rows', () => {
+    const form = document.createElement('form')
+    form.innerHTML = `
+      <div data-form-gold-item-list>
+        ${[1, 2].map(() => `
+          <div data-form-gold-item>
+            <div data-form-field="item_type">
+              <input id="item_type_jewellery" type="radio" name="item_type" value="jewellery" checked>
+              <label for="item_type_jewellery">Jewellery</label>
+              <input id="item_type_bar" type="radio" name="item_type" value="bar">
+              <label for="item_type_bar">Bar</label>
+            </div>
+            <div data-form-field="metal_type" data-form-show-if="item_type = jewellery">
+              <select id="metal_type" name="metal_type">
+                <option value=""></option>
+                <option id="9" value="9">9ct</option>
+                <option id="18" value="18" selected>18ct</option>
+              </select>
+              <label for="metal_type">Carat</label>
+            </div>
+            <div data-form-field="weight_grams" data-form-show-if="item_type = jewellery OR bullion_name = other">
+              <input id="weight_grams" name="weight_grams" value="10">
+              <label for="weight_grams">Weight</label>
+            </div>
+            <div data-form-field="bullion_name" data-form-show-if="item_type = bar">
+              <select id="bullion_name" name="bullion_name">
+                <option value=""></option>
+                <option id="1g_bar" value="1g_bar">1g Bar</option>
+              </select>
+              <label for="bullion_name">Bar type</label>
+            </div>
+            <div data-form-gold-quantity>
+              <input id="quantity" name="quantity" value="1" data-form-gold-quantity-input>
+              <label for="quantity">Quantity</label>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    `
+
+    updateRepeaterState({ form })
+
+    const ids = Array.from(form.querySelectorAll('[id]')).map((el) => el.id).filter(Boolean)
+    const names = Array.from(form.querySelectorAll('[data-form-gold-item] input, [data-form-gold-item] select'))
+      .map((el) => el.name)
+      .filter(Boolean)
+
+    expect(ids.length).toBe(new Set(ids).size)
+    expect(names.length).toBe(new Set(names).size + 2) // radio groups intentionally share one name per row
+    expect(names).not.toContain('item_type')
+    expect(names).not.toContain('metal_type')
+    expect(names).not.toContain('weight_grams')
+    expect(names).not.toContain('bullion_name')
+    expect(names).not.toContain('quantity')
+    expect(names).toEqual(expect.arrayContaining([
+      'gold_item_type_1',
+      'gold_metal_type_1',
+      'gold_weight_grams_1',
+      'gold_bullion_name_1',
+      'gold_quantity_1',
+      'gold_item_type_2',
+      'gold_metal_type_2',
+      'gold_weight_grams_2',
+      'gold_bullion_name_2',
+      'gold_quantity_2',
+    ]))
+    expect(form.querySelector('[data-form-gold-item-index="2"] [data-form-field="weight_grams"]').getAttribute('data-form-show-if')).toBe('gold_item_type_2 = jewellery OR gold_bullion_name_2 = other')
+    expect(form.querySelector('label[for="gold_weight_grams_2"]')).toBeTruthy()
+  })
+
+  it('calculates 9ct jewellery using spreadsheet-equivalent half-pound pricing rounds', () => {
+    const row = findPricingRow(pricingRows, {
+      itemType: 'jewellery',
+      metalType: '9',
+      weightGrams: '10',
+      quantity: '1',
+    })
+
+    expect(calculateEstimate({
+      itemType: 'jewellery',
+      metalType: '9',
+      weightGrams: '10',
+      quantity: '1',
+    }, row, quote.spotGbpPerGram)).toMatchObject({
+      spotValue: 368.1,
+      purchaseValue: 315,
+      loanValue: 270,
+      manual: false,
+    })
+  })
+
+  it('calculates 18ct jewellery from entered weight, selected carat, and spreadsheet rounds', () => {
+    const row = findPricingRow(pricingRows, {
+      itemType: 'jewellery',
+      metalType: '18',
+      weightGrams: '10',
+      quantity: '1',
+    })
+
+    expect(calculateEstimate({
+      itemType: 'jewellery',
+      metalType: '18',
+      weightGrams: '10',
+      quantity: '1',
+    }, row, quote.spotGbpPerGram)).toMatchObject({
+      spotValue: 736.2,
+      purchaseValue: 635,
+      loanValue: 540,
+      manual: false,
+    })
+  })
+
+  it('calculates jewellery quantity from rounded per-unit values', () => {
+    const summary = summaryFor([
+      { itemType: 'jewellery', metalType: '22', weightGrams: '10', quantity: '2' },
+    ])
+
+    expect(summary).toMatchObject({
+      spotTotal: 1800,
+      purchaseTotal: 1550,
+      loanTotal: 1320,
+      indicativeValue: 1320,
+      monthlyInterest: 86,
+      totalInterest: 516,
+      repaymentAmount: 1836,
+    })
+  })
+
+  it('uses purchase total as the indicative value for outright sale enquiries', () => {
+    const summary = summaryFor([
+      { itemType: 'jewellery', metalType: '22', weightGrams: '10', quantity: '2' },
+    ], 'sell')
+
+    expect(summary).toMatchObject({
+      purchaseTotal: 1550,
+      loanTotal: 1320,
+      indicativeValue: 1550,
+    })
+  })
+
+  it('calculates fixed-weight bars with quantity', () => {
+    const summary = summaryFor([
+      { itemType: 'bar', bullionName: '1g_bar', quantity: '3' },
+    ])
+
+    expect(summary).toMatchObject({
+      spotTotal: 294,
+      purchaseTotal: 254,
+      loanTotal: 216,
+      monthlyInterest: 14,
+      totalInterest: 84,
+      repaymentAmount: 300,
+      loanInterestRate: 6.5,
+    })
+  })
+
+  it('calculates sovereign coins from pricing database purity and weight', () => {
+    const summary = summaryFor([
+      { itemType: 'coin', bullionName: 'sovereign', quantity: '2' },
+    ])
+
+    expect(summary).toMatchObject({
+      spotTotal: 1438,
+      purchaseTotal: 1240,
+      loanTotal: 1057,
+      monthlyInterest: 69,
+      totalInterest: 414,
+      repaymentAmount: 1471,
+    })
+  })
+
+  it('rounds purchase values to nearest 50p at spreadsheet boundaries', () => {
+    const row = findPricingRow(pricingRows, { itemType: 'bar', bullionName: 'pure_1g_bar', quantity: '1' })
+    const item = { itemType: 'bar', bullionName: 'pure_1g_bar', quantity: '1' }
+
+    expect(calculateEstimate(item, row, 10.24 / (0.88 * 0.98)).purchaseValue).toBe(10)
+    expect(calculateEstimate(item, row, 10.25 / (0.88 * 0.98)).purchaseValue).toBe(10.5)
+    expect(calculateEstimate(item, row, 10.5 / (0.88 * 0.98)).purchaseValue).toBe(10.5)
+    expect(calculateEstimate(item, row, 10.74 / (0.88 * 0.98)).purchaseValue).toBe(10.5)
+    expect(calculateEstimate(item, row, 10.75 / (0.88 * 0.98)).purchaseValue).toBe(11)
+  })
+
+  it('rounds loan values to nearest 50p at spreadsheet boundaries', () => {
+    const row = findPricingRow(pricingRows, { itemType: 'bar', bullionName: 'pure_1g_bar', quantity: '1' })
+    const item = { itemType: 'bar', bullionName: 'pure_1g_bar', quantity: '1' }
+
+    expect(calculateEstimate(item, row, 10.24 / (0.75 * 0.98)).loanValue).toBe(10)
+    expect(calculateEstimate(item, row, 10.25 / (0.75 * 0.98)).loanValue).toBe(10.5)
+    expect(calculateEstimate(item, row, 10.5 / (0.75 * 0.98)).loanValue).toBe(10.5)
+    expect(calculateEstimate(item, row, 10.74 / (0.75 * 0.98)).loanValue).toBe(10.5)
+    expect(calculateEstimate(item, row, 10.75 / (0.75 * 0.98)).loanValue).toBe(11)
+  })
+
+  it('allows Other and Unsure bullion selections as manual quote items', () => {
+    const other = findPricingRow(pricingRows, { itemType: 'bar', bullionName: 'Other', quantity: '1' })
+    const unsure = findPricingRow(pricingRows, { itemType: 'coin', bullionName: 'Unsure', quantity: '1' })
+
+    expect(other).toMatchObject({ itemType: 'bar', bullionName: 'other', label: 'Other' })
+    expect(unsure).toMatchObject({ itemType: 'coin', bullionName: 'unsure', label: 'Unsure' })
+
+    const summary = summaryFor([
+      { itemType: 'bar', bullionName: 'Other', quantity: '1' },
+      { itemType: 'coin', bullionName: 'Unsure', quantity: '1' },
+    ])
+
+    expect(summary).toMatchObject({
+      itemCount: 2,
+      manualCount: 2,
+      hasManualItems: true,
+      spotTotal: 0,
+      purchaseTotal: 0,
+      loanTotal: 0,
+      loanInterestRate: 0,
+      loanApr: 0,
+      monthlyInterest: 0,
+      totalInterest: 0,
+      repaymentAmount: 0,
+      isAboveMax: false,
+    })
+    expect(summary.items.every((item) => item.manual)).toBe(true)
+  })
+
+  it('persists fixed item slot fields for Zapier through five gold items', () => {
+    const form = document.createElement('form')
+    form.innerHTML = `
+      <input type="radio" name="gold_item_type_1" value="jewellery" checked>
+      <input type="radio" name="gold_item_type_1" value="coin">
+      <input type="radio" name="gold_item_type_1" value="bar">
+    `
+    const summary = summaryFor([
+      { itemType: 'jewellery', metalType: '9', weightGrams: '1', quantity: '2' },
+      { itemType: 'bar', bullionName: '1g_bar', quantity: '3' },
+    ], 'unsure')
+
+    persistItemSlotFields(form, summary)
+
+    expect(form.querySelector('[name="gold_item_type_1"][value="jewellery"]').checked).toBe(true)
+    expect(form.querySelector('[name="gold_item_type_1"][value="coin"]')).toBeTruthy()
+    expect(form.querySelector('[name="gold_item_type_1"][value="bar"]')).toBeTruthy()
+
+    expect(form.querySelector('[name="gold_item_1_type"]').value).toBe('Jewellery')
+    expect(form.querySelector('[name="gold_item_1_metal_type"]').value).toBe('9')
+    expect(form.querySelector('[name="gold_item_1_weight_grams"]').value).toBe('1')
+    expect(form.querySelector('[name="gold_item_1_quantity"]').value).toBe('2')
+    expect(form.querySelector('[name="gold_item_1_label"]').value).toBe('9ct jewellery')
+    expect(form.querySelector('[name="gold_item_1_purchase_value"]').value).toBe('63')
+    expect(form.querySelector('[name="gold_item_1_loan_value"]').value).toBe('54')
+    // Enquiry is 'unsure' → item amount is the higher of purchase/loan, rounded
+    // to whole £; asset type is a literal "Gold" for a filled slot.
+    expect(form.querySelector('[name="gold_item_1_amount"]').value).toBe('63')
+    expect(form.querySelector('[name="gold_item_1_asset_type"]').value).toBe('Gold')
+
+    expect(form.querySelector('[name="gold_item_2_type"]').value).toBe('Bar')
+    expect(form.querySelector('[name="gold_item_2_bullion_name"]').value).toBe('1g_bar')
+    expect(form.querySelector('[name="gold_item_2_quantity"]').value).toBe('3')
+    // Per-item money values are now whole £ (one precision): 253.5 → 254.
+    expect(form.querySelector('[name="gold_item_2_purchase_value"]').value).toBe('254')
+    expect(form.querySelector('[name="gold_item_2_loan_value"]').value).toBe('216')
+    // Amount (unsure → higher of the two) matches the whole purchase value.
+    expect(form.querySelector('[name="gold_item_2_amount"]').value).toBe('254')
+    expect(form.querySelector('[name="gold_item_2_asset_type"]').value).toBe('Gold')
+
+    expect(form.querySelector('[name="gold_item_5_type"]').value).toBe('')
+    expect(form.querySelector('[name="gold_item_5_purchase_value"]').value).toBe('')
+    // Empty slots emit blank amount and asset type (no phantom Zoho rows).
+    expect(form.querySelector('[name="gold_item_5_amount"]').value).toBe('')
+    expect(form.querySelector('[name="gold_item_5_asset_type"]').value).toBe('')
+    const typeSlotFields = Array.from(form.querySelectorAll('input[type="hidden"]'))
+      .filter((field) => /^gold_item_\d+_type$/.test(field.name))
+    expect(typeSlotFields.length).toBe(5)
+  })
+
+  it('submits stable flattened fields for loan, sell, unsure, priced, manual, and empty gold slots', () => {
+    const scenarios = [
+      {
+        enquiryType: 'loan',
+        items: [
+          { itemType: 'jewellery', metalType: '18', weightGrams: '2', quantity: '1' },
+        ],
+        expectedIndicativeValue: '108',
+      },
+      {
+        enquiryType: 'sell',
+        items: [
+          { itemType: 'coin', bullionName: 'sovereign', quantity: '1' },
+        ],
+        expectedIndicativeValue: '620',
+      },
+      {
+        enquiryType: 'unsure',
+        items: [
+          { itemType: 'bar', bullionName: '1g_bar', quantity: '1' },
+          { itemType: 'coin', bullionName: 'Unsure', quantity: '1' },
+        ],
+        // Amount fields are rounded to whole £ at emit: 84.5 → 85.
+        expectedIndicativeValue: '85',
+      },
+      {
+        enquiryType: 'loan',
+        items: [
+          { itemType: 'jewellery', metalType: '9', weightGrams: '1', quantity: '1' },
+          { itemType: 'jewellery', metalType: '18', weightGrams: '1', quantity: '1' },
+          { itemType: 'bar', bullionName: '1g_bar', quantity: '1' },
+          { itemType: 'coin', bullionName: 'sovereign', quantity: '1' },
+          { itemType: 'bar', bullionName: 'Other', quantity: '1' },
+        ],
+        // 681.5 → 682 after whole-£ rounding at emit.
+        expectedIndicativeValue: '682',
+      },
+    ]
+
+    scenarios.forEach(({ enquiryType, items, expectedIndicativeValue }) => {
+      const form = document.createElement('form')
+      form.innerHTML = `
+        <input name="first_name" value="Tim">
+        <input name="email" value="tim@example.com">
+        <input type="radio" name="enquiry_type" value="${enquiryType}" checked>
+      `
+      const summary = summaryFor(items, enquiryType)
+
+      persistSummary(form, summary)
+
+      const submitted = Object.fromEntries(new FormData(form).entries())
+
+      expect(submitted.gold_item_count).toBe(String(items.length))
+      expect(submitted.gold_indicative_value).toBe(expectedIndicativeValue)
+      // gold_total is the single enquiry-aware total for Zoho — aliases the
+      // indicative value.
+      expect(submitted.gold_total).toBe(expectedIndicativeValue)
+      expect(submitted.gold_items_json).toBeUndefined()
+      expect(submitted.gold_calculation_audit_json).toBeUndefined()
+      expect(submitted.gold_purchase_formula).toBeUndefined()
+      expect(submitted.gold_loan_formula).toBeUndefined()
+      expect(submitted.gold_rounding_rule).toBeUndefined()
+
+      for (let index = 1; index <= 5; index += 1) {
+        expect(submitted).toHaveProperty(`gold_item_${index}_type`)
+        expect(submitted).toHaveProperty(`gold_item_${index}_metal_type`)
+        expect(submitted).toHaveProperty(`gold_item_${index}_weight_grams`)
+        expect(submitted).toHaveProperty(`gold_item_${index}_quantity`)
+        expect(submitted).toHaveProperty(`gold_item_${index}_bullion_name`)
+        expect(submitted).toHaveProperty(`gold_item_${index}_label`)
+        expect(submitted).toHaveProperty(`gold_item_${index}_spot_value`)
+        expect(submitted).toHaveProperty(`gold_item_${index}_purchase_value`)
+        expect(submitted).toHaveProperty(`gold_item_${index}_loan_value`)
+        expect(submitted).toHaveProperty(`gold_item_${index}_amount`)
+        expect(submitted).toHaveProperty(`gold_item_${index}_asset_type`)
+        expect(submitted).toHaveProperty(`gold_item_${index}_manual`)
+      }
+
+      // Filled slots carry the literal "Gold" asset type; empty slots are blank.
+      for (let index = 1; index <= items.length; index += 1) {
+        expect(submitted[`gold_item_${index}_asset_type`]).toBe('Gold')
+      }
+
+      const emptySlot = items.length + 1
+      if (emptySlot <= 5) {
+        expect(submitted[`gold_item_${emptySlot}_type`]).toBe('')
+        expect(submitted[`gold_item_${emptySlot}_purchase_value`]).toBe('')
+        expect(submitted[`gold_item_${emptySlot}_amount`]).toBe('')
+        expect(submitted[`gold_item_${emptySlot}_asset_type`]).toBe('')
+      }
+    })
+  })
+
+  it('emits Zoho amount fields as whole £ and formats interest (#1, #4)', () => {
+    const form = document.createElement('form')
+    form.innerHTML = `<input type="radio" name="enquiry_type" value="loan" checked>`
+    // A jewellery item chosen to produce non-whole totals so rounding is visible.
+    const summary = summaryFor([
+      { itemType: 'jewellery', metalType: '18', weightGrams: '15', quantity: '1' },
+    ], 'loan')
+
+    persistSummary(form, summary)
+    const submitted = Object.fromEntries(new FormData(form).entries())
+
+    // Amount fields carry no decimals.
+    for (const field of ['gold_purchase_total', 'gold_loan_total', 'gold_indicative_value', 'gold_total', 'gold_monthly_interest']) {
+      expect(submitted[field], field).toMatch(/^\d+$/)
+      expect(submitted[field], field).toBe(String(Math.round(Number(submitted[field]))))
+    }
+    // Each emitted amount equals its summary value rounded to whole £.
+    expect(submitted.gold_loan_total).toBe(String(Math.round(summary.loanTotal)))
+    expect(submitted.gold_monthly_interest).toBe(String(Math.round(summary.monthlyInterest)))
+    // Interest rate is always one decimal place.
+    expect(submitted.gold_interest_rate).toMatch(/^\d+\.\d$/)
+    expect(submitted.gold_interest_rate).toBe(Number(summary.loanInterestRate).toFixed(1))
+  })
+
+  it('per-item amounts always add up to gold_total, across multiple .5-ending items', () => {
+    const form = document.createElement('form')
+    form.innerHTML = `<input type="radio" name="enquiry_type" value="loan" checked>`
+    // Three separate 9ct items whose per-item loan value ends in .5 — the case
+    // where independent whole-£ rounding used to drift from the rounded sum.
+    const summary = summaryFor([
+      { itemType: 'jewellery', metalType: '9', weightGrams: '10', quantity: '1' },
+      { itemType: 'jewellery', metalType: '9', weightGrams: '10', quantity: '1' },
+      { itemType: 'jewellery', metalType: '9', weightGrams: '10', quantity: '1' },
+    ], 'loan')
+
+    persistSummary(form, summary)
+    const submitted = Object.fromEntries(new FormData(form).entries())
+
+    const itemAmounts = [1, 2, 3].map((i) => Number(submitted[`gold_item_${i}_amount`]))
+    const sumOfItems = itemAmounts.reduce((a, b) => a + b, 0)
+    // The five per-item amounts foot exactly to the total — no ±£1 drift.
+    expect(sumOfItems).toBe(Number(submitted.gold_total))
+    expect(Number(submitted.gold_total)).toBe(Number(submitted.gold_loan_total))
+    itemAmounts.forEach((v) => expect(String(v)).toMatch(/^\d+$/))
+  })
+
+  it('interest fields reconcile: monthly × term = total, loan + total = repayment', () => {
+    const form = document.createElement('form')
+    form.innerHTML = `<input type="radio" name="enquiry_type" value="loan" checked>`
+    const summary = summaryFor([
+      { itemType: 'coin', bullionName: 'sovereign', quantity: '2' },
+    ], 'loan')
+
+    persistSummary(form, summary)
+    const s = Object.fromEntries(new FormData(form).entries())
+    const n = (k) => Number(s[k])
+
+    // Every interest/repayment field is a whole number.
+    for (const f of ['gold_monthly_interest', 'gold_total_interest', 'gold_repayment_amount', 'gold_loan_total']) {
+      expect(s[f], f).toMatch(/^\d+$/)
+    }
+    // And they tie out exactly.
+    expect(n('gold_monthly_interest') * summary.loanTermMonths).toBe(n('gold_total_interest'))
+    expect(n('gold_loan_total') + n('gold_total_interest')).toBe(n('gold_repayment_amount'))
+  })
+
+  it('renders interest rate and apr with decimals, trimming trailing zeros', () => {
+    const form = document.createElement('form')
+    form.innerHTML = `
+      <span data-form-gold-output="interest_rate"></span>
+      <span data-form-gold-output="apr"></span>
+    `
+    renderFormOutputs(form, {
+      status: 'ready',
+      loanInterestRate: 6.5,
+      loanApr: 93.21,
+      isAboveMax: false,
+    })
+
+    expect(form.querySelector('[data-form-gold-output="interest_rate"]').textContent).toBe('6.5')
+    expect(form.querySelector('[data-form-gold-output="apr"]').textContent).toBe('93.21')
+  })
+
+  it('renders whole-number rates without spurious decimals', () => {
+    const form = document.createElement('form')
+    form.innerHTML = `<span data-form-gold-output="interest_rate"></span>`
+    renderFormOutputs(form, {
+      status: 'ready',
+      loanInterestRate: 6,
+      loanApr: 0,
+      isAboveMax: false,
+    })
+
+    expect(form.querySelector('[data-form-gold-output="interest_rate"]').textContent).toBe('6')
+  })
+
+  it('routes coin and bar rows with missing row weight to manual', () => {
+    expect(isManualRow({ itemType: 'coin', purityPercent: 91.67, weightGrams: NaN })).toBe(true)
+    expect(isManualRow({ itemType: 'bar', purityPercent: 99.99, weightGrams: 0 })).toBe(true)
+    expect(isManualRow({ itemType: 'bar', purityPercent: 99.99, weightGrams: 1 })).toBe(false)
+  })
+
+  it('keeps jewellery rows priceable without a row weight (user supplies weight)', () => {
+    expect(isManualRow({ itemType: 'jewellery', purityCarats: 18, weightGrams: NaN })).toBe(false)
+  })
+
+  it('returns a structured object (never a bare NaN) so callers can read purchase fields', () => {
+    const result = calculatePurchaseValue('bar', 1, 0.9999, 1, NaN)
+    expect(typeof result).toBe('object')
+    expect(result).not.toBeNull()
+    expect(result).toHaveProperty('purchaseValue')
+    expect(result).toHaveProperty('purchasePerUnit')
+    expect(result).toHaveProperty('purchaseValueRaw')
+    expect(Number.isFinite(result.purchaseValueRaw)).toBe(false)
+  })
+
+  it('treats a configured percent of exactly 1 as 100 percent, not a ratio', () => {
+    expect(getOfferRatio('purchase')).toBeCloseTo(0.88, 5)
+  })
+
+})
+
+describe('getItem reads collapsed single-submit branch names (multi-item bullion regression)', () => {
+  // Repro of the live bug: on a multi-item gold form, the shared single-submit
+  // dedup renames item 2+'s bullion <select> to `_disabled_bullion_name`. The
+  // select stays visible with the user's value, but its name no longer matches
+  // the `gold_bullion_name_2_` indexed prefix. getItem must still read it, else
+  // submit falsely errors "Choose the coin or bar." and the persisted
+  // gold_item_2_bullion_name field goes empty.
+  function buildItem2WithCollapsedBullion() {
+    const form = document.createElement('form')
+    form.setAttribute('data-form', 'gold')
+    form.innerHTML = `
+      <div data-form-gold-item-list>
+        <div data-form-gold-item data-form-gold-item-index="2">
+          <div data-form-field="item_type">
+            <input type="radio" name="gold_item_type_2" value="coin" checked>
+            <input type="radio" name="gold_item_type_2" value="bar">
+          </div>
+          <!-- coin branch: visible/active, but name collapsed by single-submit -->
+          <div data-form-field="bullion_name" data-form-show-if="gold_item_type_2 = coin"
+               data-form-state="active loaded filled">
+            <select name="_disabled_bullion_name" data-form-submit-original-name="bullion_name">
+              <option value="1_oz_gold_britannia" selected>1 Oz Gold Britannia</option>
+            </select>
+          </div>
+          <!-- bar branch: condition-hidden, also collapsed, must NOT be read -->
+          <div data-form-field="bullion_name" data-form-show-if="gold_item_type_2 = bar"
+               data-form-state="condition-hidden">
+            <select name="_disabled_bullion_name" data-form-submit-original-name="bullion_name">
+              <option value="1g_bar" selected>1g Gold Bar</option>
+            </select>
+          </div>
+        </div>
+      </div>
+    `
+    return { form, itemEl: form.querySelector('[data-form-gold-item-index="2"]') }
+  }
+
+  it('reads item 2 bullion from the active branch despite the _disabled_ name', () => {
+    const { form, itemEl } = buildItem2WithCollapsedBullion()
+    const item = getItem(form, itemEl)
+    expect(item.bullionName).toBe('1_oz_gold_britannia')
+  })
+
+  it('ignores the condition-hidden bar branch (reads coin, not bar)', () => {
+    const { form, itemEl } = buildItem2WithCollapsedBullion()
+    const item = getItem(form, itemEl)
+    expect(item.bullionName).not.toBe('1g_bar')
+  })
+
+  it('still prefers the properly indexed name when it is present (no regression for item 1)', () => {
+    const form = document.createElement('form')
+    form.setAttribute('data-form', 'gold')
+    form.innerHTML = `
+      <div data-form-gold-item-list>
+        <div data-form-gold-item data-form-gold-item-index="1">
+          <div data-form-field="item_type">
+            <input type="radio" name="gold_item_type_1" value="coin" checked>
+          </div>
+          <div data-form-field="bullion_name" data-form-show-if="gold_item_type_1 = coin"
+               data-form-state="active loaded filled">
+            <select name="bullion_name">
+              <option value="gold_sovereign" selected>Gold Sovereign</option>
+            </select>
+          </div>
+        </div>
+      </div>
+    `
+    const itemEl = form.querySelector('[data-form-gold-item-index="1"]')
+    expect(getItem(form, itemEl).bullionName).toBe('gold_sovereign')
+  })
+})
+
+describe('item type is emitted in Zoho-picklist case, not the internal slug (#5)', () => {
+  // Internal item type stays a lowercase slug (load-bearing for condition rules
+  // and pricing lookup); only the emitted gold_item_N_type is display-cased.
+  function emitType(item) {
+    const form = document.createElement('form')
+    const summary = summaryFor([item], 'sell')
+    persistItemSlotFields(form, summary)
+    return form.querySelector('[name="gold_item_1_type"]').value
+  }
+
+  it('maps coin -> Coin', () => {
+    expect(emitType({ itemType: 'coin', bullionName: 'sovereign', quantity: '1' })).toBe('Coin')
+  })
+
+  it('maps bar -> Bar', () => {
+    expect(emitType({ itemType: 'bar', bullionName: '1g_bar', quantity: '1' })).toBe('Bar')
+  })
+
+  it('maps jewellery -> Jewellery', () => {
+    expect(emitType({ itemType: 'jewellery', metalType: '18', weightGrams: '10', quantity: '1' })).toBe('Jewellery')
+  })
+})
+
+describe('2% spot discount — offers only, not the displayed spot value (Sam, 20 Jul)', () => {
+  // spotDiscountPercent (config.gold) trims the spot before the purchase/loan
+  // ratios apply; the displayed spotValue keeps the raw market spot.
+  it('applies the discount to purchase/loan but leaves spotValue raw', () => {
+    const row = findPricingRow(pricingRows, { itemType: 'bar', bullionName: 'pure_1g_bar', quantity: '1' })
+    const item = { itemType: 'bar', bullionName: 'pure_1g_bar', quantity: '1' }
+    const est = calculateEstimate(item, row, 100) // spot £100/g, 1g @ 100% purity
+
+    expect(est.spotValue).toBe(100)      // raw: 1 * 1 * 1 * 100 (no 2% here)
+    expect(est.purchaseValue).toBe(86)   // mround(100 * 0.98 * 0.88, 0.5) = 86
+    expect(est.loanValue).toBe(73.5)     // mround(100 * 0.98 * 0.75, 0.5) = 73.5
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Comprehensive pricing coverage — primitives, ratios, formulas, rounding
+// model, rate bands, interest reconciliation, aggregation and emission.
+// ---------------------------------------------------------------------------
+
+// A synthetic estimate lets tests drive calculateGoldSummary with exact
+// purchase/loan values (bypassing the pricing maths) so band boundaries and
+// footing can be asserted precisely.
+function synthEstimate({ purchaseValue = 0, loanValue = 0, spotValue = 0, manual = false, itemType = 'coin', quantity = 1 } = {}) {
+  return {
+    label: 'synthetic', itemType, bullionName: '', metalType: '',
+    quantity, weightGrams: 1, purityRatio: 0.9,
+    spotValue, purchaseValue, loanValue, manual, calculation: {},
+  }
+}
+const summaryOf = (estimates, enquiryType = 'loan') =>
+  calculateGoldSummary(estimates, enquiryType, quote, estimates)
+
+describe('rounding primitives', () => {
+  it('mround snaps to the nearest £0.50, half-up', () => {
+    expect(mround(0.24, 0.5)).toBe(0)
+    expect(mround(0.25, 0.5)).toBe(0.5)
+    expect(mround(0.74, 0.5)).toBe(0.5)
+    expect(mround(0.75, 0.5)).toBe(1)
+    expect(mround(10.24, 0.5)).toBe(10)
+    expect(mround(10.25, 0.5)).toBe(10.5)
+    expect(mround(660, 0.5)).toBe(660)
+  })
+
+  it('mround honours a custom step and coerces numeric strings', () => {
+    expect(mround(97, 5)).toBe(95)
+    expect(mround(98, 5)).toBe(100)
+    expect(mround('12.3', 0.5)).toBe(12.5)
+  })
+
+  it('mround returns NaN for a zero step or non-finite input', () => {
+    expect(mround(5, 0)).toBeNaN()
+    expect(mround(NaN, 0.5)).toBeNaN()
+  })
+
+  it('roundWholePound rounds to whole £ half-up, and coerces junk to 0', () => {
+    expect(roundWholePound(816.5)).toBe(817)
+    expect(roundWholePound(816.49)).toBe(816)
+    expect(roundWholePound(0.5)).toBe(1)
+    expect(roundWholePound(1.5)).toBe(2)
+    expect(roundWholePound(817)).toBe(817)
+    expect(roundWholePound('123.4')).toBe(123)
+    expect(roundWholePound(NaN)).toBe(0)
+    expect(roundWholePound('not a number')).toBe(0)
+    expect(roundWholePound(undefined)).toBe(0)
+  })
+})
+
+describe('spot discount (getSpotOfferMultiplier)', () => {
+  const original = formConfig.gold.spotDiscountPercent
+  afterEach(() => { formConfig.gold.spotDiscountPercent = original })
+
+  it('is 0.98 for the configured 2% discount', () => {
+    formConfig.gold.spotDiscountPercent = 2
+    expect(getSpotOfferMultiplier()).toBeCloseTo(0.98, 10)
+  })
+
+  it('is 0.95 for a 5% discount', () => {
+    formConfig.gold.spotDiscountPercent = 5
+    expect(getSpotOfferMultiplier()).toBeCloseTo(0.95, 10)
+  })
+
+  it('falls back to 1 (no adjustment) for missing / zero / negative / >=100 config', () => {
+    for (const bad of [undefined, null, 0, -5, 100, 150, 'abc']) {
+      formConfig.gold.spotDiscountPercent = bad
+      expect(getSpotOfferMultiplier(), String(bad)).toBe(1)
+    }
+  })
+})
+
+describe('offer ratios (getOfferRatio)', () => {
+  it('reads purchase 0.88 and loan 0.75 from config', () => {
+    expect(getOfferRatio('purchase')).toBeCloseTo(0.88, 10)
+    expect(getOfferRatio('loan')).toBeCloseTo(0.75, 10)
+  })
+})
+
+describe('purchase & loan formulas', () => {
+  // spot passed here is the OFFER spot (discount already applied by the caller).
+  it('jewellery purchase double-rounds: £/gram to 50p, then per-unit to 50p', () => {
+    const p = calculatePurchaseValue('jewellery', 10, 0.75, 1, 100)
+    expect(p.purchasePerGram).toBe(66)   // mround(0.75*100*0.88, .5)
+    expect(p.purchasePerUnit).toBe(660)  // mround(10*66, .5)
+    expect(p.purchaseValue).toBe(660)
+  })
+
+  it('jewellery purchase £/gram actually snaps to 50p', () => {
+    const p = calculatePurchaseValue('jewellery', 10, 0.9167, 1, 100)
+    expect(p.purchasePerGram).toBe(80.5) // mround(0.9167*100*0.88=80.67, .5)
+    expect(p.purchaseValue).toBe(805)    // mround(10*80.5, .5)
+  })
+
+  it('jewellery loan is symmetric with purchase — £/gram rounded then per-unit', () => {
+    const l = calculateLoanValue('jewellery', 10, 0.75, 1, 100)
+    expect(l.loanPerGram).toBe(56.5)  // mround(0.75*100*0.75=56.25, .5)
+    expect(l.loanPerUnit).toBe(565)   // mround(10*56.5, .5)
+    expect(l.loanValue).toBe(565)
+    // A single-rounding loan would have been mround(562.5,.5)=562.5 — the
+    // symmetric per-gram rounding deliberately changes the result.
+    expect(l.loanValue).not.toBe(562.5)
+  })
+
+  it('coin/bar round only once, per-unit', () => {
+    const p = calculatePurchaseValue('coin', 7.99, 0.9167, 1, 100)
+    expect(p.purchasePerGram).toBeNaN()   // no per-gram step for bullion
+    expect(p.purchaseValue).toBe(644.5)   // mround(7.99*0.9167*100*0.88, .5)
+    const l = calculateLoanValue('coin', 7.99, 0.9167, 1, 100)
+    expect(l.loanPerGram).toBeNaN()
+    expect(l.loanValue).toBe(549.5)       // mround(7.99*0.9167*100*0.75, .5)
+  })
+
+  it('multiplies by quantity after rounding the per-unit value', () => {
+    const p = calculatePurchaseValue('coin', 7.99, 0.9167, 3, 100)
+    expect(p.purchaseValue).toBe(1933.5)  // 3 * 644.5
+  })
+
+  it('returns NaN values when the offer ratio is non-positive', () => {
+    const original = formConfig.gold.purchaseToValuePercent
+    try {
+      formConfig.gold.purchaseToValuePercent = 0
+      const p = calculatePurchaseValue('coin', 7.99, 0.9167, 1, 100)
+      expect(p.purchaseValue).toBeNaN()
+    } finally {
+      formConfig.gold.purchaseToValuePercent = original
+    }
+  })
+})
+
+describe('getDisplayValue (enquiry-aware per-item amount)', () => {
+  const est = synthEstimate({ purchaseValue: 100, loanValue: 80 })
+  it('loan → loan value', () => expect(getDisplayValue(est, 'loan')).toBe(80))
+  it('sell → purchase value', () => expect(getDisplayValue(est, 'sell')).toBe(100))
+  it('consign → purchase value', () => expect(getDisplayValue(est, 'consign')).toBe(100))
+  it('unsure → the higher of the two', () => expect(getDisplayValue(est, 'unsure')).toBe(100))
+  it('empty enquiry → the higher of the two', () => expect(getDisplayValue(est, '')).toBe(100))
+})
+
+describe('rate bands & interest reconciliation', () => {
+  it('selects 6.5% below £5,000', () => {
+    const s = summaryOf([synthEstimate({ loanValue: 4999, purchaseValue: 4999 })], 'loan')
+    expect(s.loanTotal).toBe(4999)
+    expect(s.loanInterestRate).toBe(6.5)
+    expect(s.isAboveMax).toBe(false)
+    expect(s.monthlyInterest).toBe(325)       // round(4999 * 0.065)
+    expect(s.totalInterest).toBe(325 * 6)
+    expect(s.repaymentAmount).toBe(4999 + 325 * 6)
+  })
+
+  it('selects 6.0% at exactly £5,000 (maxExclusive boundary)', () => {
+    const s = summaryOf([synthEstimate({ loanValue: 5000, purchaseValue: 5000 })], 'loan')
+    expect(s.loanInterestRate).toBe(6.0)
+    expect(s.monthlyInterest).toBe(300)
+    expect(s.totalInterest).toBe(1800)
+    expect(s.repaymentAmount).toBe(6800)
+  })
+
+  it('selects 6.0% at exactly £15,000 (maxInclusive boundary)', () => {
+    const s = summaryOf([synthEstimate({ loanValue: 15000, purchaseValue: 15000 })], 'loan')
+    expect(s.loanInterestRate).toBe(6.0)
+    expect(s.isAboveMax).toBe(false)
+    expect(s.repaymentAmount).toBe(15000 + 900 * 6)
+  })
+
+  it('flags above-max over £15,000 and zeroes interest (loan total still shown)', () => {
+    const s = summaryOf([synthEstimate({ loanValue: 15001, purchaseValue: 15001 })], 'loan')
+    expect(s.isAboveMax).toBe(true)
+    expect(s.loanTotal).toBe(15001)
+    expect(s.monthlyInterest).toBe(0)
+    expect(s.totalInterest).toBe(0)
+    expect(s.repaymentAmount).toBe(0)
+  })
+
+  it('always reconciles: monthly × term = total, loan + total = repayment', () => {
+    for (const loanValue of [1234, 4999, 5000, 8000, 15000]) {
+      const s = summaryOf([synthEstimate({ loanValue, purchaseValue: loanValue })], 'loan')
+      expect(s.monthlyInterest * s.loanTermMonths).toBe(s.totalInterest)
+      expect(s.loanTotal + s.totalInterest).toBe(s.repaymentAmount)
+      expect(Number.isInteger(s.monthlyInterest)).toBe(true)
+      expect(Number.isInteger(s.totalInterest)).toBe(true)
+      expect(Number.isInteger(s.repaymentAmount)).toBe(true)
+    }
+  })
+})
+
+describe('summary aggregation & whole-£ footing', () => {
+  it('per-item whole-£ amounts sum to the total — no round-of-sum drift', () => {
+    // Three .5-ending loan values: round-of-sum would give 302, footed gives 303.
+    const s = summaryOf([
+      synthEstimate({ loanValue: 100.5, purchaseValue: 120.5 }),
+      synthEstimate({ loanValue: 100.5, purchaseValue: 120.5 }),
+      synthEstimate({ loanValue: 100.5, purchaseValue: 120.5 }),
+    ], 'loan')
+    expect(s.loanTotal).toBe(303)        // 101 * 3
+    expect(s.indicativeValue).toBe(303)
+    expect(s.indicativeValue).not.toBe(302) // round(301.5) — the old drift
+  })
+
+  it('indicative value follows the enquiry type', () => {
+    const items = [
+      synthEstimate({ loanValue: 100.5, purchaseValue: 120.5 }),
+      synthEstimate({ loanValue: 100.5, purchaseValue: 120.5 }),
+      synthEstimate({ loanValue: 100.5, purchaseValue: 120.5 }),
+    ]
+    expect(summaryOf(items, 'loan').indicativeValue).toBe(303)   // Σ round(100.5)
+    expect(summaryOf(items, 'sell').indicativeValue).toBe(363)   // Σ round(120.5)
+    expect(summaryOf(items, 'consign').indicativeValue).toBe(363)
+  })
+
+  it('excludes manual items from totals but counts them', () => {
+    const s = summaryOf([
+      synthEstimate({ loanValue: 100, purchaseValue: 120, manual: false }),
+      synthEstimate({ loanValue: 0, purchaseValue: 0, manual: true }),
+    ], 'loan')
+    expect(s.itemCount).toBe(2)
+    expect(s.manualCount).toBe(1)
+    expect(s.hasManualItems).toBe(true)
+    expect(s.loanTotal).toBe(100)
+    expect(s.indicativeValue).toBe(100)
+  })
+
+  it('handles an empty item set without NaN', () => {
+    const s = summaryOf([], 'loan')
+    expect(s.itemCount).toBe(0)
+    expect(s.purchaseTotal).toBe(0)
+    expect(s.loanTotal).toBe(0)
+    expect(s.indicativeValue).toBe(0)
+    expect(s.isAboveMax).toBe(false)
+    expect(s.monthlyInterest).toBe(0)
+    expect(s.repaymentAmount).toBe(0)
+  })
+})
+
+describe('emission — every amount whole and footing (mixed item types)', () => {
+  it('sends whole-£ amounts, and the five item amounts add up to gold_total', () => {
+    const form = document.createElement('form')
+    form.innerHTML = `<input type="radio" name="enquiry_type" value="loan" checked>`
+    const summary = summaryFor([
+      { itemType: 'jewellery', metalType: '18', weightGrams: '15', quantity: '1' },
+      { itemType: 'coin', bullionName: 'sovereign', quantity: '2' },
+      { itemType: 'bar', bullionName: '1g_bar', quantity: '3' },
+    ], 'loan')
+    persistSummary(form, summary)
+    const s = Object.fromEntries(new FormData(form).entries())
+
+    const wholeFields = [
+      'gold_purchase_total', 'gold_loan_total', 'gold_indicative_value', 'gold_total',
+      'gold_monthly_interest', 'gold_total_interest', 'gold_repayment_amount',
+    ]
+    wholeFields.forEach((f) => expect(s[f], f).toMatch(/^\d+$/))
+
+    const itemSum = [1, 2, 3, 4, 5]
+      .map((i) => Number(s[`gold_item_${i}_amount`] || 0))
+      .reduce((a, b) => a + b, 0)
+    expect(itemSum).toBe(Number(s.gold_total))
+    expect(Number(s.gold_total)).toBe(Number(s.gold_loan_total))
+
+    // Interest still reconciles on the emitted (string) values.
+    expect(Number(s.gold_monthly_interest) * summary.loanTermMonths).toBe(Number(s.gold_total_interest))
+    expect(Number(s.gold_loan_total) + Number(s.gold_total_interest)).toBe(Number(s.gold_repayment_amount))
+  })
+
+  it('emits exactly five slots, Gold asset type for filled, blank for empty', () => {
+    const form = document.createElement('form')
+    const summary = summaryFor([
+      { itemType: 'coin', bullionName: 'sovereign', quantity: '1' },
+      { itemType: 'bar', bullionName: '1g_bar', quantity: '1' },
+    ], 'sell')
+    persistItemSlotFields(form, summary)
+    const s = Object.fromEntries(new FormData(form).entries())
+
+    for (const kind of ['type', 'amount', 'asset_type']) {
+      const count = Object.keys(s).filter((k) => new RegExp(`^gold_item_\\d+_${kind}$`).test(k)).length
+      expect(count, kind).toBe(5)
+    }
+    expect(s.gold_item_1_asset_type).toBe('Gold')
+    expect(s.gold_item_2_asset_type).toBe('Gold')
+    expect(s.gold_item_3_asset_type).toBe('')
+    expect(s.gold_item_3_amount).toBe('')
+    // Item type is emitted in Zoho picklist case.
+    expect(s.gold_item_1_type).toBe('Coin')
+    expect(s.gold_item_2_type).toBe('Bar')
+    // No duplicate quantity field.
+    expect(Object.keys(s).some((k) => /^quantity_item_\d+$/.test(k))).toBe(false)
+  })
+})
+
+describe('pricing edge cases', () => {
+  it('derives purity from carats (9ct → 0.375) and from percent (sovereign → ~0.9167)', () => {
+    const jw = calculateEstimate({ itemType: 'jewellery', metalType: '9', weightGrams: '10', quantity: '1' },
+      findPricingRow(pricingRows, { itemType: 'jewellery', metalType: '9' }), quote.spotGbpPerGram)
+    expect(jw.purityRatio).toBeCloseTo(0.375, 6)
+
+    const coin = calculateEstimate({ itemType: 'coin', bullionName: 'sovereign', quantity: '1' },
+      findPricingRow(pricingRows, { itemType: 'coin', bullionName: 'sovereign' }), quote.spotGbpPerGram)
+    expect(coin.purityRatio).toBeCloseTo(0.9167, 4)
+  })
+
+  it('floors a zero / invalid quantity to 1 (you cannot price 0 items)', () => {
+    const zero = calculateEstimate({ itemType: 'coin', bullionName: 'sovereign', quantity: '0' },
+      findPricingRow(pricingRows, { itemType: 'coin', bullionName: 'sovereign' }), quote.spotGbpPerGram)
+    const one = calculateEstimate({ itemType: 'coin', bullionName: 'sovereign', quantity: '1' },
+      findPricingRow(pricingRows, { itemType: 'coin', bullionName: 'sovereign' }), quote.spotGbpPerGram)
+    expect(zero.quantity).toBe(1)
+    expect(zero.purchaseValue).toBe(one.purchaseValue)
+    expect(zero.loanValue).toBe(one.loanValue)
+  })
+
+  it('keeps spotValue on RAW spot while purchase/loan use the discounted spot', () => {
+    const est = calculateEstimate({ itemType: 'bar', bullionName: 'pure_1g_bar', quantity: '1' },
+      findPricingRow(pricingRows, { itemType: 'bar', bullionName: 'pure_1g_bar' }), 100)
+    expect(est.spotValue).toBe(100)     // 1g * 100% * 1 * 100, no discount
+    expect(est.purchaseValue).toBe(86)  // mround(100 * 0.98 * 0.88, .5)
+    expect(est.loanValue).toBe(73.5)    // mround(100 * 0.98 * 0.75, .5)
+  })
+})
+
+describe('consistency hardening — traceability & one-precision', () => {
+  it('emits the discount and the offer spot so purchase/loan are reconstructable', () => {
+    const form = document.createElement('form')
+    form.innerHTML = `<input type="radio" name="enquiry_type" value="loan" checked>`
+    const summary = summaryFor([
+      { itemType: 'bar', bullionName: 'pure_1g_bar', quantity: '1' },
+    ], 'loan')
+    persistSummary(form, summary)
+    const s = Object.fromEntries(new FormData(form).entries())
+
+    expect(s.gold_spot_discount_percent).toBe('2')
+    // Offer spot = raw spot × 0.98, and it is what the offers price from.
+    expect(Number(s.gold_offer_spot_price_gbp_gram)).toBeCloseTo(quote.spotGbpPerGram * 0.98, 2)
+    expect(Number(s.gold_spot_price_gbp_gram)).toBeCloseTo(quote.spotGbpPerGram, 2)
+    // Purchase is reconstructable from the emitted offer spot (before mround).
+    const offer = Number(s.gold_offer_spot_price_gbp_gram)
+    expect(Number(s.gold_purchase_total)).toBeCloseTo(Math.round(offer * 1 * 0.88), 0)
+  })
+
+  it('per-item money is whole £ and foots to each total', () => {
+    const form = document.createElement('form')
+    form.innerHTML = `<input type="radio" name="enquiry_type" value="loan" checked>`
+    const summary = summaryFor([
+      { itemType: 'jewellery', metalType: '18', weightGrams: '15', quantity: '1' },
+      { itemType: 'coin', bullionName: 'sovereign', quantity: '2' },
+      { itemType: 'bar', bullionName: '1g_bar', quantity: '3' },
+    ], 'loan')
+    persistSummary(form, summary)
+    const s = Object.fromEntries(new FormData(form).entries())
+
+    const sum = (kind) => [1, 2, 3, 4, 5]
+      .map((i) => Number(s[`gold_item_${i}_${kind}`] || 0))
+      .reduce((a, b) => a + b, 0)
+
+    for (const kind of ['spot_value', 'purchase_value', 'loan_value', 'amount']) {
+      for (let i = 1; i <= 3; i += 1) {
+        expect(s[`gold_item_${i}_${kind}`], `${kind} ${i}`).toMatch(/^\d+$/) // whole
+      }
+    }
+    expect(sum('purchase_value')).toBe(Number(s.gold_purchase_total))
+    expect(sum('loan_value')).toBe(Number(s.gold_loan_total))
+    expect(sum('spot_value')).toBe(Number(s.gold_spot_total))
+    expect(sum('amount')).toBe(Number(s.gold_total))
+  })
+})
+
+describe('config — rate bands are shared, not duplicated', () => {
+  it('gold and loan reference the exact same rate-band array', () => {
+    expect(formConfig.gold.rateBands).toBe(formConfig.loan.rateBands)
+  })
+})
+
+describe('purity source is type-locked (#2 option A)', () => {
+  it('jewellery uses carats and ignores a stray purityPercent', () => {
+    // Row carries BOTH — carats is authoritative for jewellery.
+    const ratio = getPurityRatio({ itemType: 'jewellery', purityCarats: 22, purityPercent: 50 }, {}, 'jewellery')
+    expect(ratio).toBeCloseTo(22 / 24, 6)
+    expect(ratio).not.toBeCloseTo(0.5, 3)
+  })
+
+  it('jewellery falls back to the entered carat when the row has none', () => {
+    const ratio = getPurityRatio({ itemType: 'jewellery' }, { metalType: '18' }, 'jewellery')
+    expect(ratio).toBeCloseTo(18 / 24, 6)
+  })
+
+  it('coin/bar uses percent and ignores a stray purityCarats', () => {
+    const ratio = getPurityRatio({ itemType: 'coin', purityPercent: 91.67, purityCarats: 24 }, {}, 'coin')
+    expect(ratio).toBeCloseTo(0.9167, 4)
+    expect(ratio).not.toBeCloseTo(1, 3)
+  })
+
+  it('isManualRow uses the same type-locked source', () => {
+    // Jewellery with only a percent (no carats) → manual, because carats is the
+    // jewellery source and it is absent.
+    expect(isManualRow({ itemType: 'jewellery', purityPercent: 75 })).toBe(true)
+    // Coin with only carats (no percent) → manual, because percent is missing.
+    expect(isManualRow({ itemType: 'coin', purityCarats: 22, weightGrams: 7.99 })).toBe(true)
+  })
+})

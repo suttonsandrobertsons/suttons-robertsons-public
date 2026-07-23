@@ -1,0 +1,56 @@
+export function parseNumber(value) {
+  let clean = String(value ?? "").replace(/[^0-9.-]/g, "");
+  // Collapse multiple dots (e.g. stray thousands separators in "1.234.56"):
+  // keep the first dot as the decimal point and drop any later ones.
+  const firstDot = clean.indexOf(".");
+  if (firstDot !== -1) {
+    clean = clean.slice(0, firstDot + 1) + clean.slice(firstDot + 1).replace(/\./g, "");
+  }
+  if (!clean || clean === "-" || clean === "." || clean === "-.") return NaN;
+  return Number(clean);
+}
+
+export function roundMoney(value) {
+  return Math.round((Number(value) || 0) * 100) / 100;
+}
+
+export function formatMoney(value, currency = "GBP", fractionDigits = 0) {
+  return new Intl.NumberFormat("en-GB", {
+    style: "currency",
+    currency,
+    maximumFractionDigits: fractionDigits,
+  }).format(Number(value) || 0);
+}
+
+export function formatNumber(value, maximumFractionDigits = 0) {
+  return new Intl.NumberFormat("en-GB", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits,
+  }).format(Number(value) || 0);
+}
+
+export function getRateBand(amount, bands) {
+  for (const band of bands) {
+    const hasInclusive = Number.isFinite(band?.maxInclusive);
+    const hasExclusive = Number.isFinite(band?.maxExclusive);
+    // Skip malformed bands that declare no usable upper bound rather than
+    // silently evaluating `amount < undefined` (always false) and falling through.
+    if (!hasInclusive && !hasExclusive) continue;
+    if (hasInclusive && amount <= band.maxInclusive) return band;
+    if (hasExclusive && amount < band.maxExclusive) return band;
+  }
+  return null;
+}
+
+export function debounce(callback, delay = 120) {
+  let timer = 0;
+  const debounced = (...args) => {
+    window.clearTimeout(timer);
+    timer = window.setTimeout(() => callback(...args), delay);
+  };
+  debounced.cancel = () => {
+    window.clearTimeout(timer);
+    timer = 0;
+  };
+  return debounced;
+}

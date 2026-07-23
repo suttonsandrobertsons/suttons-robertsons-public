@@ -1,0 +1,224 @@
+import { SELECTORS, formConfig } from './shared.js';
+import { formLogger, formDom } from './dom.js';
+import { formFields, formFieldGroups } from './fields.js';
+import { formChoices } from './choices.js';
+import { formConditions, formSteps, formAttribution, formSuccessPage, formParams } from './conditions.js';
+import { formEvents } from './events.js';
+
+// ============================================================================
+// 12. CENTRAL ORCHESTRATOR APP
+// ============================================================================
+export const formApp = {
+  readyRoots: new WeakSet(),
+  forms: new Set(),
+  formKeys: new Set(),
+
+  getFormByRoot(root) {
+    if (!root) return null;
+    for (const f of this.forms) {
+      if (f.root === root) return f;
+    }
+    return null;
+  },
+
+  pruneDisconnected() {
+    Array.from(this.forms).forEach((form) => {
+      if (form.root?.isConnected) return;
+
+      form.successObserver?.disconnect?.();
+      form.failureObserver?.disconnect?.();
+      this.forms.delete(form);
+      this.formKeys.delete(form.key);
+      // Drop the readyRoots latch so a reconnected same-node is re-created on boot.
+      this.readyRoots.delete(form.root);
+    });
+  },
+
+  boot(scope = document) {
+    this.pruneDisconnected();
+    formSuccessPage.scrollToTopIfNeeded();
+    formSuccessPage.hydrateOutputs(scope);
+    // Fire the form_submission dataLayer push from the TY page (native lead-form
+    // POSTs race page-unload, so the pre-handoff push doesn't survive). Runs
+    // AFTER hydrateOutputs so the snapshot is still present; it clears it once pushed.
+    formSuccessPage.trackSuccess(scope);
+    formAttribution.capture();
+
+    const roots = [
+      ...(scope.matches?.(SELECTORS.root) ? [scope] : []),
+      ...Array.from(scope.querySelectorAll(SELECTORS.root)),
+    ].filter((root) => root.isConnected);
+    formLogger.log(null, 'Booting forms.', { count: roots.length, scoped: scope !== document });
+
+    roots.forEach((root) => {
+      if (this.readyRoots.has(root)) return;
+      try {
+        this.create(root);
+        this.readyRoots.add(root);
+      } catch (error) {
+        formLogger.warn(null, 'Skipping form that failed to initialise.', error);
+      }
+    });
+
+    formParams.watch();
+  },
+
+  create(root) {
+    if (!(root instanceof HTMLFormElement)) {
+      throw new Error('[data-form] must be added to the form element.');
+    }
+
+    this.prepareRoot(root);
+
+    const formKey = this.getFormKey(root);
+
+    if (this.formKeys.has(formKey)) {
+      throw new Error('Each [data-form] form needs a unique data-form value or id. Duplicate key: ' + formKey);
+    }
+
+    this.formKeys.add(formKey);
+
+    /** @typedef {{ root: HTMLFormElement, key: string, scope: Element, steps: Element[], stepIndex: number, syncedFieldKeys: Set<string>, isSubmitting?: boolean, hasTrackedSuccess?: boolean, hasPushedDataLayer?: boolean, successObserver?: MutationObserver, failureObserver?: MutationObserver, submissionMeta?: object }} FormInstance */
+    const form = {
+      root,
+      key: formKey,
+      scope: root.closest('.w-form') || root,
+      steps: Array.from(root.querySelectorAll(SELECTORS.step)),
+      stepIndex: 0,
+      syncedFieldKeys: new Set(),
+    };
+
+    this.forms.add(form);
+
+    formLogger.log(form, 'Creating form.', {
+      id: form.key,
+      steps: form.steps.length,
+      fieldCount: formDom.getFields(form.root).length,
+      uploadCount: form.root.querySelectorAll(SELECTORS.upload).length,
+    });
+
+    formFields.configure(form);
+    formParams.hydrate(form);
+    formFields.applyStartChecked(form);
+    this.stripScopedParamsFromUrl(formKey);
+    formEvents.bind(form);
+    this.refresh(form);
+    formDom.setState(root, 'loaded', true);
+  },
+
+  stripScopedParamsFromUrl(formKey) {
+    if (!window.history.replaceState || !formConfig.params.stripAfterHydrate) return;
+
+    const cleanUrl = new URL(window.location.href);
+    const prefix = formKey + formConfig.params.separator;
+    let changed = false;
+
+    Array.from(cleanUrl.searchParams.keys()).forEach((key) => {
+      if (key.startsWith(prefix)) {
+        cleanUrl.searchParams.delete(key);
+        changed = true;
+      }
+    });
+
+    if (!changed) return;
+
+    formParams.isWriting = true;
+    window.history.replaceState(window.history.state, '', cleanUrl);
+    formParams.isWriting = false;
+  },
+
+  getFormKey(root) {
+    if (root.hasAttribute('data-form')) {
+      const key = root.getAttribute('data-form');
+      if (key && key.trim()) return key.trim();
+    }
+
+    return root.id || 'form';
+  },
+
+  prepareRoot(root) {
+    if (!root.getAttribute('method') || root.getAttribute('method').toLowerCase() === 'get') {
+      root.setAttribute('method', 'post');
+    }
+    root.noValidate = true;
+    root.setAttribute('novalidate', 'novalidate');
+  },
+
+  refresh(form) {
+    if (form && !form.scope) {
+      const instance = this.getFormByRoot(form.root || form);
+      if (instance) {
+        form = instance;
+      } else if (form.querySelectorAll) {
+        form = { scope: form, root: form, steps: [] };
+      }
+    }
+    formConditions.render(form);
+
+    if (form.steps.length) {
+      formSteps.render(form);
+      // Second conditions pass: formSteps.render() just changed step-hidden state.
+      // A condition on a now-visible step may depend on a field on a different step
+      // whose value was masked on the first pass (field was on a step-hidden element).
+      // Re-evaluating ensures conditions reflect the current step visibility context.
+      // Defensive — field values are read from DOM regardless of step-hidden status,
+      // but the step-visibility boundary makes the second pass the safe default.
+      formConditions.render(form);
+    }
+
+    formFields.render(form);
+    formChoices.render(form);
+    formFieldGroups.render(form);
+  },
+
+  refreshAll() {
+    this.forms.forEach((form) => {
+      formParams.hydrate(form);
+      this.refresh(form);
+    });
+  },
+};
+
+import { setFormApp } from './lazy-app.js';
+setFormApp(formApp);
+
+// ============================================================================
+// 13. DOCUMENT-LEVEL ATTRIBUTION FALLBACK
+// ============================================================================
+// Keep Webflow's own form serialization honest: condition-hidden controls
+// must be disabled before any submit listener reads the form.
+(function initSubmitControlGuard() {
+  if (typeof document === 'undefined') return;
+
+  document.addEventListener('submit', (event) => {
+    const root = event.target;
+    if (!(root instanceof HTMLFormElement) || !root.matches(SELECTORS.root)) return;
+
+    const form = formApp.getFormByRoot(root) || { root, scope: root, steps: Array.from(root.querySelectorAll(SELECTORS.step)) };
+    formApp.refresh(form);
+    formFields.prepareControlsForSubmit(form);
+  }, true);
+})();
+
+// Ensures every form submission includes attribution fields, even forms that
+// lack data-form and were never initialised by formApp.boot().
+(function initAttributionFallback() {
+  if (typeof document === 'undefined') return;
+
+  document.addEventListener('submit', (event) => {
+    const form = event.target;
+    if (!(form instanceof HTMLFormElement)) return;
+
+    // Only enrich Webflow lead forms (wrapped in .w-form). Arbitrary forms —
+    // search boxes, newsletter widgets, third-party embeds — must not receive
+    // tracking hidden inputs.
+    if (!form.closest('.w-form')) return;
+
+    // If the core module already wrote attribution, skip
+    if (form.querySelector('[name="unique_id"]')) return;
+
+    // Refresh attribution storage on each submit so UTM/landing data stays current.
+    formAttribution.capture();
+    formAttribution.setFields(form);
+  }, true);
+})();
