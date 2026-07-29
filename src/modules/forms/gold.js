@@ -165,6 +165,7 @@ function normalizeCmsPricingRow(row) {
     weightGrams: row.weightGrams,
     purityCarats: row.purityCarats,
     purityPercent: row.purityPercent,
+    extraDiscountPercent: row.extraDiscountPercent,
   };
 }
 
@@ -208,6 +209,7 @@ function normalizePricingRows(rows = []) {
         weightGrams: parseNumber(row.weightGrams),
         purityCarats: parseNumber(row.purityCarats),
         purityPercent: parseNumber(row.purityPercent),
+        extraDiscountPercent: parseNumber(row.extraDiscountPercent),
       };
     })
     .filter(Boolean);
@@ -318,6 +320,18 @@ function getSpotOfferMultiplier() {
   return Number.isFinite(percent) && percent > 0 && percent < 100 ? 1 - percent / 100 : 1;
 }
 
+// Certain coin groups (e.g. Swiss/French Francs, Gold American Eagles) are not
+// bought or loaned against at the default 88% purchase / 75% loan ratios. The
+// CMS pricing row can carry an `extraDiscountPercent`; when set, both the
+// purchase and loan offers for that row are trimmed by a FURTHER whole percent
+// ON TOP of the base ratio — i.e. multiplicatively: ratio × (1 - extra/100)
+// (6 → × 0.94). A blank/zero/out-of-range value means no adjustment (× 1).
+// The displayed spot value and spot discount are unaffected.
+function getRowOfferMultiplier(row) {
+  const percent = parseNumber(row?.extraDiscountPercent);
+  return Number.isFinite(percent) && percent > 0 && percent < 100 ? 1 - percent / 100 : 1;
+}
+
 function mround(value, multiple = 0.5) {
   const number = Number(value);
   const step = Number(multiple);
@@ -332,8 +346,8 @@ function roundWholePound(value) {
   return Number.isFinite(number) ? Math.round(number) : 0;
 }
 
-function calculatePurchaseValue(itemType, weightGrams, purityRatio, quantity, spotGbpPerGram) {
-  const purchaseRatio = getOfferRatio("purchase");
+function calculatePurchaseValue(itemType, weightGrams, purityRatio, quantity, spotGbpPerGram, offerAdjust = 1) {
+  const purchaseRatio = getOfferRatio("purchase") * offerAdjust;
   if (!Number.isFinite(purchaseRatio) || purchaseRatio <= 0) return {
     purchasePerGram: NaN,
     purchasePerUnit: NaN,
@@ -364,8 +378,8 @@ function calculatePurchaseValue(itemType, weightGrams, purityRatio, quantity, sp
   };
 }
 
-function calculateLoanValue(itemType, weightGrams, purityRatio, quantity, spotGbpPerGram) {
-  const loanRatio = getOfferRatio("loan");
+function calculateLoanValue(itemType, weightGrams, purityRatio, quantity, spotGbpPerGram, offerAdjust = 1) {
+  const loanRatio = getOfferRatio("loan") * offerAdjust;
   if (!Number.isFinite(loanRatio) || loanRatio <= 0) return {
     loanPerGram: NaN,
     loanPerUnit: NaN,
@@ -410,12 +424,18 @@ function calculateEstimate(item, row, spotGbpPerGram) {
   const weightGrams = getWeightGrams(row, item, itemType);
   const quantity = getQuantity(item);
   const spotValue = weightGrams * purityRatio * quantity * spotGbpPerGram;
-  const purchaseRatio = getOfferRatio("purchase");
-  const loanRatio = getOfferRatio("loan");
   // Offers price off a spot trimmed by spotDiscountPercent; spotValue stays raw.
   const offerSpotGbpPerGram = spotGbpPerGram * getSpotOfferMultiplier();
-  const purchase = calculatePurchaseValue(itemType, weightGrams, purityRatio, quantity, offerSpotGbpPerGram);
-  const loan = calculateLoanValue(itemType, weightGrams, purityRatio, quantity, offerSpotGbpPerGram);
+  // Group-specific trim (e.g. Francs, American Eagles): a further % off the
+  // purchase/loan ratios for this pricing row only. 1 when the row has none.
+  const rowOfferAdjust = getRowOfferMultiplier(row);
+  // Effective ratios = base × any group trim. Reported in the calculation
+  // trace below so it reconciles with the per-gram/per-unit values; for a row
+  // with no group discount rowOfferAdjust is 1, so these stay 0.88 / 0.75.
+  const purchaseRatio = getOfferRatio("purchase") * rowOfferAdjust;
+  const loanRatio = getOfferRatio("loan") * rowOfferAdjust;
+  const purchase = calculatePurchaseValue(itemType, weightGrams, purityRatio, quantity, offerSpotGbpPerGram, rowOfferAdjust);
+  const loan = calculateLoanValue(itemType, weightGrams, purityRatio, quantity, offerSpotGbpPerGram, rowOfferAdjust);
 
   return {
     label: row.label,
@@ -1522,6 +1542,7 @@ export const goldCalculationTestHooks = {
   calculatePurchaseValue,
   calculateLoanValue,
   getSpotOfferMultiplier,
+  getRowOfferMultiplier,
   getDisplayValue,
   getPurityRatio,
   mround,

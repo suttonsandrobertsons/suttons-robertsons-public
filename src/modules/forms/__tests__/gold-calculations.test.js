@@ -2,7 +2,7 @@ import { describe, expect, it, afterEach } from 'vitest'
 import { goldCalculationTestHooks } from '../gold.js'
 import { formConfig } from '../config.js'
 
-const { normalizePricingRows, findPricingRow, calculateEstimate, calculateGoldSummary, persistSummary, persistItemSlotFields, getFieldWrappers, getItem, updateRepeaterState, getOfferRatio, calculatePurchaseValue, calculateLoanValue, getSpotOfferMultiplier, getDisplayValue, getPurityRatio, mround, roundWholePound, isManualRow, renderFormOutputs } = goldCalculationTestHooks
+const { normalizePricingRows, findPricingRow, calculateEstimate, calculateGoldSummary, persistSummary, persistItemSlotFields, getFieldWrappers, getItem, updateRepeaterState, getOfferRatio, calculatePurchaseValue, calculateLoanValue, getSpotOfferMultiplier, getRowOfferMultiplier, getDisplayValue, getPurityRatio, mround, roundWholePound, isManualRow, renderFormOutputs } = goldCalculationTestHooks
 
 const pricingRows = normalizePricingRows([
   { itemType: 'Jewellery', label: '9ct jewellery', purityCarats: '9', weightGrams: '10' },
@@ -1089,5 +1089,180 @@ describe('purity source is type-locked (#2 option A)', () => {
     expect(isManualRow({ itemType: 'jewellery', purityPercent: 75 })).toBe(true)
     // Coin with only carats (no percent) → manual, because percent is missing.
     expect(isManualRow({ itemType: 'coin', purityCarats: 22, weightGrams: 7.99 })).toBe(true)
+  })
+})
+
+// SR-433: certain coin groups (Swiss/French Francs, Gold American Eagles) are
+// priced below the default 88% purchase / 75% loan ratios. A CMS pricing row
+// carries `extraDiscountPercent`; both offers for that row are trimmed by a
+// FURTHER whole percent ON TOP of the base ratio (multiplicative:
+// ratio × (1 - extra/100)). Blank/zero/out-of-range → no adjustment.
+describe('gold group discounts (SR-433)', () => {
+  // A clean 100% / 1g coin at £100/g spot makes the arithmetic exact:
+  //   offerSpot = 100 × 0.98 = 98
+  //   purchase (no discount)  = MROUND(98 × 0.88,        0.5) = 86
+  //   purchase (6% further)   = MROUND(98 × 0.88 × 0.94, 0.5) = 81
+  //   loan     (no discount)  = MROUND(98 × 0.75,        0.5) = 73.5
+  //   loan     (6% further)   = MROUND(98 × 0.75 × 0.94, 0.5) = 69
+  const SPOT = 100
+  const baseRow = { itemType: 'Coin', bullionName: 'eagle_1oz', label: 'Gold American Eagle 1oz', purityPercent: '100', weightGrams: '1' }
+  const item = { itemType: 'coin', bullionName: 'eagle_1oz', quantity: '1' }
+
+  it('reads extraDiscountPercent off a CMS pricing row', () => {
+    const [row] = normalizePricingRows([{ ...baseRow, extraDiscountPercent: '6' }])
+    expect(row.extraDiscountPercent).toBe(6)
+  })
+
+  it('getRowOfferMultiplier maps a whole percent to a multiplicative trim', () => {
+    expect(getRowOfferMultiplier({ extraDiscountPercent: 6 })).toBeCloseTo(0.94, 10)
+    expect(getRowOfferMultiplier({ extraDiscountPercent: 0 })).toBe(1)
+    expect(getRowOfferMultiplier({ extraDiscountPercent: NaN })).toBe(1)
+    expect(getRowOfferMultiplier({})).toBe(1)
+    expect(getRowOfferMultiplier(null)).toBe(1)
+    expect(getRowOfferMultiplier({ extraDiscountPercent: 100 })).toBe(1)
+    expect(getRowOfferMultiplier({ extraDiscountPercent: -6 })).toBe(1)
+  })
+
+  it('trims both purchase and loan by a further 6% for a flagged row', () => {
+    const [row] = normalizePricingRows([{ ...baseRow, extraDiscountPercent: '6' }])
+    expect(calculateEstimate(item, row, SPOT)).toMatchObject({
+      purchaseValue: 81,
+      loanValue: 69,
+      manual: false,
+    })
+  })
+
+  it('leaves an identical row untouched when no discount is set (regression guard)', () => {
+    const [row] = normalizePricingRows([baseRow])
+    expect(row.extraDiscountPercent).toBeNaN()
+    expect(calculateEstimate(item, row, SPOT)).toMatchObject({
+      purchaseValue: 86,
+      loanValue: 73.5,
+    })
+  })
+
+  it('applies the discount per-row: a flagged coin and a normal coin sum correctly', () => {
+    const rows = normalizePricingRows([
+      { ...baseRow, extraDiscountPercent: '6' },
+      { itemType: 'Coin', bullionName: 'sovereign', label: 'Sovereign', purityPercent: '100', weightGrams: '1' },
+    ])
+    const eagle = calculateEstimate({ itemType: 'coin', bullionName: 'eagle_1oz', quantity: '1' }, findPricingRow(rows, { itemType: 'coin', bullionName: 'eagle_1oz' }), SPOT)
+    const sov = calculateEstimate({ itemType: 'coin', bullionName: 'sovereign', quantity: '1' }, findPricingRow(rows, { itemType: 'coin', bullionName: 'sovereign' }), SPOT)
+    // Eagle discounted, Sovereign at full rate.
+    expect(eagle.purchaseValue).toBe(81)
+    expect(sov.purchaseValue).toBe(86)
+    const summary = calculateGoldSummary([eagle, sov], 'sell', { ...quote, spotGbpPerGram: SPOT })
+    // Whole-£ total foots to the two whole-£ line items (81 + 86).
+    expect(summary.purchaseTotal).toBe(167)
+    expect(summary.indicativeValue).toBe(167)
+  })
+})
+
+// SR-433 extended coverage — the discount through every downstream path:
+// the calculators, the emitted Zoho fields, interest/rate-band selection,
+// multi-item footing, fractional percents, and manual rows.
+describe('gold group discounts — extended coverage (SR-433)', () => {
+  const SPOT = 100 // offerSpot = 100 × 0.98 = 98
+
+  // A 100% / 1g coin priced at £100/g → exact whole-£ arithmetic.
+  function coinEstimate({ purityPercent = '100', weightGrams = '1', quantity = '1', extraDiscountPercent, spot = SPOT } = {}) {
+    const rows = normalizePricingRows([
+      { itemType: 'Coin', bullionName: 'c', label: 'C', purityPercent, weightGrams, ...(extraDiscountPercent != null ? { extraDiscountPercent } : {}) },
+    ])
+    const item = { itemType: 'coin', bullionName: 'c', quantity }
+    return calculateEstimate(item, findPricingRow(rows, item), spot)
+  }
+  function coinSummary(opts, enquiryType = 'loan') {
+    return calculateGoldSummary([coinEstimate(opts)], enquiryType, { ...quote, spotGbpPerGram: opts.spot ?? SPOT })
+  }
+
+  describe('calculators accept an offerAdjust and default to 1', () => {
+    it('purchase: coin trims with adjust, unchanged without', () => {
+      expect(calculatePurchaseValue('coin', 1, 1, 1, 98, 0.94).purchaseValue).toBe(81)
+      expect(calculatePurchaseValue('coin', 1, 1, 1, 98).purchaseValue).toBe(86) // default 1
+    })
+    it('loan: coin trims with adjust, unchanged without', () => {
+      expect(calculateLoanValue('coin', 1, 1, 1, 98, 0.94).loanValue).toBe(69)
+      expect(calculateLoanValue('coin', 1, 1, 1, 98).loanValue).toBe(73.5) // default 1
+    })
+    it('the trim is generic — it applies to jewellery too if a row ever sets it', () => {
+      // Coin-only scope is a CMS-data choice (only coin rows carry the field),
+      // not a code restriction. The mechanism itself is item-type agnostic.
+      expect(calculatePurchaseValue('jewellery', 10, 1, 1, 98, 0.94).purchaseValue).toBe(810)
+      expect(calculatePurchaseValue('jewellery', 10, 1, 1, 98).purchaseValue).toBe(860)
+    })
+  })
+
+  it('purchase/loan fall monotonically as the discount grows', () => {
+    expect(coinEstimate({}).purchaseValue).toBe(86) // 0%
+    expect(coinEstimate({ extraDiscountPercent: '6' }).purchaseValue).toBe(81)
+    expect(coinEstimate({ extraDiscountPercent: '10' }).purchaseValue).toBe(77.5)
+    expect(coinEstimate({}).loanValue).toBe(73.5)
+    expect(coinEstimate({ extraDiscountPercent: '6' }).loanValue).toBe(69)
+    expect(coinEstimate({ extraDiscountPercent: '10' }).loanValue).toBe(66)
+  })
+
+  it('accepts a fractional discount percent', () => {
+    // 6.5% → × 0.935: purchase mround(98×0.88×0.935,0.5)=80.5, loan mround(98×0.75×0.935,0.5)=68.5
+    const est = coinEstimate({ extraDiscountPercent: '6.5' })
+    expect(est.purchaseValue).toBe(80.5)
+    expect(est.loanValue).toBe(68.5)
+  })
+
+  it('emits the discounted whole-£ values to the Zoho item fields', () => {
+    const form = document.createElement('form')
+    persistItemSlotFields(form, coinSummary({ extraDiscountPercent: '6' }, 'sell'))
+    const val = (n) => form.querySelector(`[name="${n}"]`).value
+    expect(val('gold_item_1_purchase_value')).toBe('81')
+    expect(val('gold_item_1_loan_value')).toBe('69')
+    expect(val('gold_item_1_spot_value')).toBe('100')
+    expect(val('gold_item_1_amount')).toBe('81') // sell → purchase basis
+  })
+
+  it('foots a mixed lead: discounted coin + full-rate coin + jewellery', () => {
+    const rows = normalizePricingRows([
+      { itemType: 'Coin', bullionName: 'eagle', label: 'Eagle', purityPercent: '100', weightGrams: '1', extraDiscountPercent: '6' },
+      { itemType: 'Coin', bullionName: 'sov', label: 'Sov', purityPercent: '100', weightGrams: '1' },
+      { itemType: 'Jewellery', label: '18ct', purityCarats: '18', weightGrams: '10' },
+    ])
+    const items = [
+      { itemType: 'coin', bullionName: 'eagle', quantity: '1' },   // 81
+      { itemType: 'coin', bullionName: 'sov', quantity: '1' },     // 86
+      { itemType: 'jewellery', metalType: '18', weightGrams: '10', quantity: '1' }, // 645
+    ]
+    const estimates = items.map((it) => calculateEstimate(it, findPricingRow(rows, it), SPOT))
+    const summary = calculateGoldSummary(estimates, 'sell', { ...quote, spotGbpPerGram: SPOT })
+    expect(estimates.map((e) => e.purchaseValue)).toEqual([81, 86, 645])
+    expect(summary.purchaseTotal).toBe(812) // 81 + 86 + 645 — foots to line items
+    expect(summary.indicativeValue).toBe(812)
+  })
+
+  it('computes interest on the discounted loan total', () => {
+    const summary = coinSummary({ weightGrams: '31.1', extraDiscountPercent: '6' })
+    const undiscounted = coinSummary({ weightGrams: '31.1' })
+    // Discount flows into the interest base…
+    expect(summary.loanTotal).toBeLessThan(undiscounted.loanTotal)
+    // …and interest still reconciles against the (discounted) total.
+    expect(summary.monthlyInterest).toBe(roundWholePound(summary.loanTotal * summary.loanInterestRate / 100))
+  })
+
+  it('a discount can push the loan into a higher (smaller-loan) rate band', () => {
+    // weight 6.94 g × qty 10 @ £100/g: loan 5,100 (6.0% band) → discounted 4,795 (<5,000 → 6.5%).
+    const full = coinSummary({ weightGrams: '6.94', quantity: '10' })
+    const disc = coinSummary({ weightGrams: '6.94', quantity: '10', extraDiscountPercent: '6' })
+    expect(full.loanTotal).toBe(5100)
+    expect(full.loanInterestRate).toBe(6)
+    expect(disc.loanTotal).toBe(4795)
+    expect(disc.loanInterestRate).toBe(6.5)
+  })
+
+  it('manual rows ("other"/"unsure") stay £0 regardless of any discount', () => {
+    const rows = normalizePricingRows([
+      { itemType: 'Coin', bullionName: 'c', label: 'C', purityPercent: '100', weightGrams: '1', extraDiscountPercent: '6' },
+    ])
+    const est = calculateEstimate({ itemType: 'coin', bullionName: 'other', quantity: '1' }, findPricingRow(rows, { itemType: 'coin', bullionName: 'other' }), SPOT)
+    expect(est.manual).toBe(true)
+    expect(est.purchaseValue).toBe(0)
+    expect(est.loanValue).toBe(0)
   })
 })
