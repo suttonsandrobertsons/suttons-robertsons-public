@@ -1,5 +1,5 @@
 /**
- * Accessible-name sweep for anchors (SR-420).
+ * Accessible-name sweep for anchors.
  *
  * Semrush flags ~thousands of links with "no anchor text" — almost all are
  * decorative/overlay links Webflow generates with no visible text and no

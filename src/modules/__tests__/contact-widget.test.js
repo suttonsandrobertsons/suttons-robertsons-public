@@ -94,7 +94,7 @@ describe("contact-widget", () => {
 		expect(text).toContain(window.location.href.split("?")[0]);
 		expect(text).toContain("Hello");
 
-		// Message order (Sam/Lauren, 9 Jul 2026): URL first, "Hello" last. Any
+		// Message order: URL first, "Hello" last. Any
 		// UTM corruption WhatsApp introduces by absorbing the trailing greeting
 		// is neutralised on landing by sanitizeUtmValue (see conditions.js).
 		const lines = text.split("\n").filter(Boolean);
@@ -166,7 +166,7 @@ describe("contact-widget", () => {
 		expect(getContactWidgetInstances().length).toBe(before);
 	});
 
-	// SR-408: a WhatsApp action OUTSIDE the widget (Get Started module) must open
+	// a WhatsApp action OUTSIDE the widget (Get Started module) must open
 	// WhatsApp directly, not the floating widget.
 	it("opens WhatsApp for a [data-widget-action='whatsapp'] outside the widget root", () => {
 		document.body.innerHTML = `

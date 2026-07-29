@@ -13,7 +13,7 @@ Loaded on the site with:
 
 ```html
 <script type="module"
-  src="https://cdn.jsdelivr.net/gh/spurwing-main/suttons-robertsons-public@COMMIT_SHA/dist/loader.js"></script>
+  src="https://cdn.jsdelivr.net/gh/suttonsandrobertsons/suttons-robertsons-public@COMMIT_SHA/dist/loader.js"></script>
 ```
 
 Documentation is maintained separately.

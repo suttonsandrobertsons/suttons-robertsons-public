@@ -96,7 +96,7 @@ function fillAddressFields(form, a) {
 
 // Zoho reads one "First Address Line". When a dedicated house_number field is in
 // use, keep a hidden combined value ("42" + "Bath Road" -> "42 Bath Road") that
-// Sam maps that Zoho field to — recomputed from source each time, so it can never
+// that Zoho field maps to — recomputed from source each time, so it can never
 // drift or double up. No-op on forms without the house_number field.
 function updateCombinedLine1(form) {
   if (!q('[name="house_number"]', form)) return;

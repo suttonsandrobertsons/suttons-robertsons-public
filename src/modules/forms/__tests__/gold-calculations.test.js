@@ -409,8 +409,8 @@ describe('gold calculator financials', () => {
     scenarios.forEach(({ enquiryType, items, expectedIndicativeValue }) => {
       const form = document.createElement('form')
       form.innerHTML = `
-        <input name="first_name" value="Tim">
-        <input name="email" value="tim@example.com">
+        <input name="first_name" value="Alex">
+        <input name="email" value="alex@example.com">
         <input type="radio" name="enquiry_type" value="${enquiryType}" checked>
       `
       const summary = summaryFor(items, enquiryType)
@@ -677,7 +677,7 @@ describe('item type is emitted in Zoho-picklist case, not the internal slug (#5)
   })
 })
 
-describe('2% spot discount — offers only, not the displayed spot value (Sam, 20 Jul)', () => {
+describe('2% spot discount — offers only, not the displayed spot value', () => {
   // spotDiscountPercent (config.gold) trims the spot before the purchase/loan
   // ratios apply; the displayed spotValue keeps the raw market spot.
   it('applies the discount to purchase/loan but leaves spotValue raw', () => {
@@ -1092,12 +1092,12 @@ describe('purity source is type-locked (#2 option A)', () => {
   })
 })
 
-// SR-433: certain coin groups (Swiss/French Francs, Gold American Eagles) are
+// certain coin groups (Swiss/French Francs, Gold American Eagles) are
 // priced below the default 88% purchase / 75% loan ratios. A CMS pricing row
 // carries `extraDiscountPercent`; both offers for that row are trimmed by a
 // FURTHER whole percent ON TOP of the base ratio (multiplicative:
 // ratio × (1 - extra/100)). Blank/zero/out-of-range → no adjustment.
-describe('gold group discounts (SR-433)', () => {
+describe('gold group discounts', () => {
   // A clean 100% / 1g coin at £100/g spot makes the arithmetic exact:
   //   offerSpot = 100 × 0.98 = 98
   //   purchase (no discount)  = MROUND(98 × 0.88,        0.5) = 86
@@ -1158,10 +1158,10 @@ describe('gold group discounts (SR-433)', () => {
   })
 })
 
-// SR-433 extended coverage — the discount through every downstream path:
+// extended coverage — the discount through every downstream path:
 // the calculators, the emitted Zoho fields, interest/rate-band selection,
 // multi-item footing, fractional percents, and manual rows.
-describe('gold group discounts — extended coverage (SR-433)', () => {
+describe('gold group discounts — extended coverage', () => {
   const SPOT = 100 // offerSpot = 100 × 0.98 = 98
 
   // A 100% / 1g coin priced at £100/g → exact whole-£ arithmetic.

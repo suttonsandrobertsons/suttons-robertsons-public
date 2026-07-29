@@ -997,7 +997,7 @@ describe('form UI regressions', () => {
     window.history.replaceState({}, '', '/')
   })
 
-  it('scrolls to the top of the next step when advancing a multi-step form (bug 869e1yjgh)', () => {
+  it('scrolls to the top of the next step when advancing a multi-step form', () => {
     document.body.innerHTML = `
       <form data-form="multistep">
         <div data-form-step>

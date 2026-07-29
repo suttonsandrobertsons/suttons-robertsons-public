@@ -326,7 +326,7 @@ export const formSteps = {
         // when a taller step collapsed (display:none) and the browser clamped
         // the retained scroll position down near the footer, the next step's
         // top could fall inside that band and no correction fired — leaving the
-        // viewport at the bottom of the next step (bug 869e1yjgh). A plain
+        // viewport at the bottom of the next step. A plain
         // distance check corrects both the too-low (footer) and too-high cases.
         if (Math.abs(window.pageYOffset - targetTop) < 2) return;
 
@@ -646,7 +646,7 @@ const TRACKING_VALUE_KEYS = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_te
 // redirect-form params AND the pre-filled WhatsApp link — all the way to Zoho.
 // Normalise control chars/newlines/tabs to spaces, trim, then keep only the
 // first whitespace-delimited token so any corrupted value (inbound OR already
-// persisted) is neutralised at the single choke point. (Reported by Sam, 6 Jul 2026.)
+// persisted) is neutralised at the single choke point.
 function sanitizeUtmValue(v) {
   return String(v ?? '').replace(/[\u0000-\u0020]+/g, ' ').trim().split(/\s+/)[0] || '';
 }
@@ -924,7 +924,7 @@ export const formAttribution = {
 
     // Signed link to this enquiry's folder page — captured from the upload
     // worker's response (the form can't build it; it's HMAC-signed server-side).
-    // This is the single field Sam maps into one Zoho URL field for ALL
+    // This is the single field mapped into one Zoho URL field for ALL
     // attachments (images, videos, PDFs). Read before we overwrite submissionMeta.
     const folderUrl = form?.submissionMeta?.folderUrl || '';
     // Always emit the field so downstream mappings have a stable contract. Empty

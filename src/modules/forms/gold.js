@@ -311,7 +311,7 @@ function getOfferRatio(key) {
   return Number.isFinite(number) && number > 0 ? number / 100 : NaN;
 }
 
-// Sam (20 Jul): trim a fixed % off the live spot before the purchase/loan ratios
+// Trim a fixed % off the live spot before the purchase/loan ratios
 // apply, to absorb spot-feed variance. Returns the multiplier (e.g. 0.98 for 2%).
 // Affects the purchase & loan OFFERS only — the displayed spot value uses the
 // raw spot. Falls back to 1 (no adjustment) for a missing/invalid config.
@@ -692,7 +692,8 @@ function calculateGoldSummary(estimates, enquiryType, quote, itemsBySlot = estim
   const spotTotal = estimates.reduce((sum, item) => sum + roundWholePound(item.spotValue), 0);
   const pricedEstimates = estimates.filter((item) => !item.manual);
   const manualCount = estimates.length - pricedEstimates.length;
-  // Rounding model (see docs/gold-pricing-logic.md): every amount shown to a
+  // Rounding model (documented in docs/gold-pricing-logic.md, in the project
+  // resources repo): every amount shown to a
   // customer or sent to Zoho is a whole £, and every total is the SUM of its
   // whole-£ line items — so the per-item amounts always add up to the total
   // (no ±£1 drift) and the on-screen figures match what Zoho receives. Per-item
@@ -946,7 +947,7 @@ function persistSummary(form, summary) {
   w("gold_spot_total", String(summary.spotTotal));
   // All amount/total fields are whole £ and foot to their per-item line items —
   // the rounding happens once, in calculateGoldSummary (see the rounding model
-  // note there and docs/gold-pricing-logic.md), so screen and Zoho agree.
+  // note there and the gold pricing logic doc), so screen and Zoho agree.
   w("gold_purchase_total", String(summary.purchaseTotal));
   w("gold_loan_total", String(summary.loanTotal));
   w("gold_indicative_value", String(summary.indicativeValue));

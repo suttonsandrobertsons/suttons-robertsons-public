@@ -133,13 +133,13 @@ export const formConfig = {
     // Any upload field accepts images, documents, or videos — Zapier routes each
     // to the right Zoho field by type (Image Upload vs File Upload).
     //   • Images: WebP/HEIC/HEIF are transcoded to JPEG server-side by the worker
-    //     (worker/src/routes/upload.js); the worker returns the JPEG URL so what
+    //     (the upload worker); the worker returns the JPEG URL so what
     //     reaches Zapier/Zoho is always a Zoho-safe JPEG.
     //   • Documents + videos pass straight through (not converted) and are stored
     //     as-is. Zoho's File Upload field accepts these, capped at 20 MB via
     //     maxBytes above.
     // Keep this in sync with the worker's ALLOWED_TYPES / ALLOWED_EXTENSIONS
-    // (worker/src/routes/upload.js) — that's the worker's sole authoritative
+    // (the upload worker) — that's the worker's sole authoritative
     // copy. Necessarily a separate copy here: this is a different bundle for
     // a different runtime (browser vs Worker), so it can't be a shared import.
     allowedMimeTypes: [

@@ -34,7 +34,7 @@ import { formAttribution } from "./forms/core.js";
  */
 
 // WhatsApp Business number. Format: country code, no leading +, no spaces.
-// Production line (swapped from the staging placeholder before the 2026-07-09 go-live).
+// This is the live production line.
 const WHATSAPP_NUMBER = "447398469961";
 
 const SELECTORS = {
@@ -88,8 +88,8 @@ function resolveAttribution() {
  * Build the pre-filled WhatsApp deep link for the current page.
  * Carries the greeting plus the landing-page URL (with resolved UTM parameters).
  *
- * Message order is URL first, "Hello" last, at the client's request (Sam/Lauren,
- * 9 Jul 2026). WhatsApp's link auto-detection can greedily absorb the trailing
+ * Message order is URL first, "Hello" last, at the client's request.
+ * WhatsApp's link auto-detection can greedily absorb the trailing
  * "Hello" into the URL's query string on click-through (e.g. `utm_medium=direct`
  * → `direct Hello`). This is DELIBERATELY tolerated here because the corruption
  * is neutralised at the capture choke point: sanitizeUtmValue() collapses any
@@ -262,7 +262,7 @@ function bindExternalToggles(scope) {
 
 /**
  * Wire WhatsApp action buttons that sit OUTSIDE a widget root — e.g. the
- * "Get Started" module's "WhatsApp us" CTA (SR-408). These must open WhatsApp
+ * "Get Started" module's "WhatsApp us" CTA. These must open WhatsApp
  * directly with the same prefilled message as the in-widget button, NOT open
  * the floating chat widget. In Webflow the button carries
  * [data-widget-action="whatsapp"] (not [data-widget-toggle]). Buttons inside a
