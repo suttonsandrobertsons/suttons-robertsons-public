@@ -65,6 +65,7 @@ export const formDerivedFields = {
 
     deriveCombinedAssetType(root)
     deriveAppointmentDatetimes(root)
+    deriveNewLeadType(root)
   },
 }
 
@@ -110,6 +111,45 @@ export function addMinutes(date, time, minutes) {
   const d = new Date(Date.UTC(Y, Mo - 1, D))
   d.setUTCDate(d.getUTCDate() + dayShift)
   return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}T${pad(eh)}:${pad(em)}:${pad(s || 0)}`
+}
+
+// Zoho's New_Lead_Type is a multi-select, so it takes one comma-joined string.
+// This used to be four same-named hidden inputs in the Designer, one per enquiry
+// value, each with its own show-if — but the single-submit dedup only ever lets
+// ONE of a same-named group submit, so a lead could never carry more than one
+// type. The Yes/No follow-ups make the outcome combinatorial, so it's derived
+// here instead and the hidden inputs are gone.
+//
+// The follow-ups are only read inside the Sell branch, so a Loan enquiry can
+// never pick up a stale Yes even if its show-if were missing. get() also skips
+// condition-hidden controls, so a hidden follow-up reads as unanswered.
+//
+// An enquiry value we don't recognise writes an empty string rather than
+// guessing — better a visibly empty field in Zoho than a wrong lead type.
+function deriveNewLeadType(root) {
+  const enquiry = (formValues.get(root, 'enquiry_type')[0] || '').trim()
+  if (!enquiry) return
+
+  // Case-insensitive: the site's other Yes/No radios (original_box,
+  // original_paperwork) use lowercase `yes`/`no`, so accept either casing
+  // rather than depend on how these two get built in the Designer.
+  const answeredYes = (name) => (formValues.get(root, name)[0] || '').trim().toLowerCase() === 'yes'
+  const types = []
+
+  if (enquiry === 'Loan') {
+    types.push('Loan Customer')
+  } else if (enquiry === 'Sell My Items') {
+    // SHP Customer is the base for every sell lead, not conditional on the
+    // follow-ups: without it, a sell lead answering No to both would submit an
+    // empty field. It also means a form that omits the follow-ups still sends a
+    // type. AWAITING CLIENT CONFIRMATION: the spec only adds SHP alongside Loan
+    // Customer when follow-up 1 is Yes.
+    types.push('SHP Customer')
+    if (answeredYes('enquiry_consider_loan')) types.push('Loan Customer')
+    if (answeredYes('enquiry_consider_consignment')) types.push('Consignment Customer')
+  }
+
+  setHidden(root, 'New_Lead_Type', types.join(', '))
 }
 
 // Coalesce the asset picker into a single value for Zoho's Asset_Type field:

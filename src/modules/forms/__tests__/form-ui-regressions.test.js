@@ -308,9 +308,9 @@ describe('form UI regressions', () => {
   it('keeps only active branch values in the submit payload', () => {
     document.body.innerHTML = `
       <form data-form="quote">
-        <input type="hidden" name="New_Lead_Type" value="Loan Customer">
-        <div data-form-show-if="enquiry_type=Consignment" data-form-state="condition-hidden">
-          <input type="hidden" name="New_Lead_Type" value="Consignment Customer" data-form-state="condition-hidden">
+        <input type="hidden" name="box_and_papers" value="Original Box Only">
+        <div data-form-show-if="original_box=no" data-form-state="condition-hidden">
+          <input type="hidden" name="box_and_papers" value="None" data-form-state="condition-hidden">
         </div>
         <label>
           <input type="checkbox" name="contact_method" value="Email" checked>
@@ -324,43 +324,17 @@ describe('form UI regressions', () => {
     `
 
     const form = bootForm(document.querySelector('form'))
-    const hiddenFallback = form.root.querySelector('[value="Consignment Customer"]')
+    const hiddenFallback = form.root.querySelector('[value="None"]')
 
     expect(formDom.isConditionHidden(hiddenFallback)).toBe(true)
     expect(hiddenFallback.disabled).toBe(false)
     formFields.prepareControlsForSubmit(form)
     expect(hiddenFallback.disabled).toBe(false)
-    expect(hiddenFallback.name).toBe('_disabled_New_Lead_Type')
+    expect(hiddenFallback.name).toBe('_disabled_box_and_papers')
     expect(formPayload(form)).toEqual([
-      ['New_Lead_Type', 'Loan Customer'],
-      ['_disabled_New_Lead_Type', 'Consignment Customer'],
+      ['box_and_papers', 'Original Box Only'],
+      ['_disabled_box_and_papers', 'None'],
       ['contact_method', 'Email,Phone'],
-    ])
-  })
-
-  it('keeps only the active New_Lead_Type value submit-ready during render', () => {
-    document.body.innerHTML = `
-      <form data-form="quote">
-        <input type="hidden" name="enquiry_type" value="Sell My Items">
-        <input type="hidden" name="New_Lead_Type" value="Loan Customer" data-form-show-if="enquiry_type=Loan">
-        <input type="hidden" name="New_Lead_Type" value="SHP Customer" data-form-show-if="enquiry_type=Sell My Items">
-        <input type="hidden" name="New_Lead_Type" value="Consignment Customer" data-form-show-if="enquiry_type=Consignment">
-      </form>
-    `
-
-    const form = bootForm(document.querySelector('form'))
-    const leadTypeFields = Array.from(form.root.querySelectorAll('[data-form-submit-original-name="New_Lead_Type"]'))
-
-    expect(leadTypeFields.map((field) => [field.value, field.name, field.disabled])).toEqual([
-      ['Loan Customer', '_disabled_New_Lead_Type', false],
-      ['SHP Customer', 'New_Lead_Type', false],
-      ['Consignment Customer', '_disabled_New_Lead_Type', false],
-    ])
-    expect(formPayload(form)).toEqual([
-      ['enquiry_type', 'Sell My Items'],
-      ['_disabled_New_Lead_Type', 'Loan Customer'],
-      ['New_Lead_Type', 'SHP Customer'],
-      ['_disabled_New_Lead_Type', 'Consignment Customer'],
     ])
   })
 
