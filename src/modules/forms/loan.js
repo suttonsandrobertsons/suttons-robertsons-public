@@ -1,6 +1,6 @@
 import { formConfig } from "./config.js";
 import { formLogger, formApp } from "./core.js";
-import { roundMoney, formatMoney, formatNumber, parseNumber, getRateBand, debounce } from "./shared.js";
+import { roundMoney, formatMoney, parseNumber, getRateBand, debounce } from "./shared.js";
 import { initRangeSliders } from "./range-slider.js";
 
 const SELECTORS = {
@@ -73,10 +73,11 @@ function doRefresh(form) {
 
   setOutput(form, "loan_amount", formatMoney(amount));
   setOutput(form, "months", String(months));
-  // Show up to 1 decimal so banded rates like 6.5% aren't rounded to 7%
-  // (whole rates still render clean, e.g. 6%). The submitted loan_interest_rate
-  // field below stays the raw numeric value.
-  setOutput(form, "interest_rate", isEnquiry ? "" : `${formatNumber(rate, 1)}%`);
+  // Always exactly 1 decimal so both bands read alike: 6.5% and 6.0%. Not
+  // formatNumber — its minimumFractionDigits is 0 and gold.js shares it. Only
+  // reached when a band matched (isEnquiry covers the rest), so never "0.0%".
+  // The submitted loan_interest_rate field below stays the raw numeric value.
+  setOutput(form, "interest_rate", isEnquiry ? "" : `${rate.toFixed(1)}%`);
   setOutput(form, "monthly_interest", isEnquiry ? "" : formatMoney(monthlyInterest));
   setOutput(form, "total_interest", isEnquiry ? "" : formatMoney(totalInterest));
   setOutput(form, "total_redeem", isEnquiry ? "" : formatMoney(totalRedeem));

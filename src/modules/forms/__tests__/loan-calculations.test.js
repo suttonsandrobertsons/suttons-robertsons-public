@@ -115,7 +115,7 @@ describe('loan calculator financials', () => {
     expect(form.querySelector('[data-form-loan-output="interest_rate"]').textContent).toBe('6.5%')
   })
 
-  it('renders whole-number rates without a trailing decimal (6%, not 6.0%)', () => {
+  it('pads whole-number rates to one decimal so both bands read alike (6.0%, not 6%)', () => {
     const form = document.createElement('form')
     form.innerHTML = `
       <input data-form-loan-amount value="5000">
@@ -125,6 +125,20 @@ describe('loan calculator financials', () => {
 
     loanCalculationTestHooks.doRefresh(form)
 
-    expect(form.querySelector('[data-form-loan-output="interest_rate"]').textContent).toBe('6%')
+    expect(form.querySelector('[data-form-loan-output="interest_rate"]').textContent).toBe('6.0%')
+  })
+
+  it('leaves the rate blank at the enquiry cap rather than rendering a padded 0.0%', () => {
+    const form = document.createElement('form')
+    form.innerHTML = `
+      <input data-form-loan-amount value="15000">
+      <input type="radio" name="loan_duration" value="6" checked>
+      <span data-form-loan-output="interest_rate"></span>
+    `
+
+    loanCalculationTestHooks.doRefresh(form)
+
+    expect(form.querySelector('[data-form-loan-output="interest_rate"]').textContent).toBe('')
+    expect(Object.fromEntries(new FormData(form).entries()).loan_interest_rate).toBe('')
   })
 })
