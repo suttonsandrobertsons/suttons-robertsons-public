@@ -3,6 +3,7 @@ import { BREAKPOINT_PX } from "../../utils/breakpoints.js";
 import { createPressLayoutCollisionController } from "./splide-press.js";
 let instances = [];
 const FORM_CHANGE_LISTENER_KEY = "__splideFormChangeListenerBound";
+const IMAGE_LOAD_REFRESH_TIMEOUT_MS = 5000;
 
 const defaults = {
 	selector: ".splide",
@@ -30,6 +31,7 @@ const defaults = {
 	autoScrollAttr: "data-splide-autoscroll",
 	autoScrollMobileAttr: "data-splide-autoscroll-mobile",
 	autoScrollSpeedAttr: "data-splide-autoscroll-speed",
+	autoScrollPauseOnHoverAttr: "data-splide-autoscroll-pause-on-hover",
 	splideAutoplayDelay: 1,
 	centerSlideMinWidth: BREAKPOINT_PX.tabletMin,
 	mobileMaxWidth: BREAKPOINT_PX.tabletMin,
@@ -44,6 +46,7 @@ const defaults = {
 		autoScroll: false,
 		autoScrollMobile: null,
 		autoScrollSpeed: 2,
+		autoScrollPauseOnHover: null,
 		gap: 36,
 		gapMobile: 16,
 		perPage: "auto",
@@ -217,6 +220,11 @@ function resolveSettings(root, userSettings) {
 		settings.autoScrollSpeedAttr,
 		settings.options.autoScrollSpeed,
 	);
+	settings.options.autoScrollPauseOnHover = parseBooleanAttr(
+		root,
+		settings.autoScrollPauseOnHoverAttr,
+		settings.options.autoScrollPauseOnHover,
+	);
 	settings.options.pagination = parseBooleanAttr(
 		root,
 		settings.paginationAttr,
@@ -282,10 +290,17 @@ function getSplideOptions(root, settings) {
 				speed: autoScrollSpeed,
 				autoStart: false,
 			};
+
+			if (typeof settings.options.autoScrollPauseOnHover === "boolean") {
+				options.autoScroll.pauseOnHover = settings.options.autoScrollPauseOnHover;
+			}
 		} else {
 			options.autoplay = true;
 			options.interval = Math.max(1000, Math.round(8000 / autoScrollSpeed));
-			options.pauseOnHover = false;
+			options.pauseOnHover =
+				typeof settings.options.autoScrollPauseOnHover === "boolean"
+					? settings.options.autoScrollPauseOnHover
+					: false;
 		}
 	}
 
@@ -342,11 +357,113 @@ function syncSplideAutoScrollForOverflow(splide, settings, isOverflow) {
 	const autoScroll = splide.Components?.AutoScroll;
 	if (!autoScroll) return;
 
-	if (getSplideActiveState(splide, isOverflow)) {
-		autoScroll.play?.();
+	const shouldRun = getSplideActiveState(splide, isOverflow);
+
+	if (shouldRun) {
+		// The extension can pause itself during Splide's initial positioning,
+		// dragging, hover, or focus. Its own isPaused() state is authoritative.
+		if (autoScroll.isPaused?.() !== false) {
+			autoScroll.play?.();
+		}
 	} else {
 		autoScroll.pause?.();
 	}
+}
+
+function startSplideAutoScrollWhenReady(splide, settings) {
+	if (settings.options.autoScroll !== true) return;
+	if (!getSplideActiveState(splide)) return;
+
+	const autoScroll = splide.Components?.AutoScroll;
+	if (!autoScroll) return;
+
+	if (autoScroll.isPaused?.() !== false) {
+		autoScroll.play?.();
+	}
+}
+
+function createImageLoadRefreshController(slides, refresh) {
+	const images = slides.flatMap((slide) => qsa(slide, "img"));
+
+	if (images.length === 0) {
+		return { destroy() {} };
+	}
+
+	const pendingImages = new Set(images.filter((image) => !image.complete));
+	const imageListeners = new Map();
+	let settleTimeout = null;
+	let fallbackTimeout = null;
+	let isDestroyed = false;
+
+	function destroy() {
+		if (isDestroyed) return;
+		isDestroyed = true;
+
+		if (settleTimeout !== null) {
+			window.clearTimeout(settleTimeout);
+			settleTimeout = null;
+		}
+
+		if (fallbackTimeout !== null) {
+			window.clearTimeout(fallbackTimeout);
+			fallbackTimeout = null;
+		}
+
+		imageListeners.forEach((listener, image) => {
+			image.removeEventListener("load", listener);
+			image.removeEventListener("error", listener);
+		});
+		imageListeners.clear();
+	}
+
+	function scheduleSingleRefresh() {
+		if (isDestroyed || settleTimeout !== null) return;
+
+		// Let the browser apply the final intrinsic image dimensions before measuring.
+		settleTimeout = window.setTimeout(() => {
+			settleTimeout = null;
+			destroy();
+			refresh();
+		}, 0);
+	}
+
+	images.forEach((image) => {
+		if (pendingImages.has(image)) {
+			const handleSettle = () => {
+				pendingImages.delete(image);
+
+				if (pendingImages.size === 0) {
+					scheduleSingleRefresh();
+				}
+			};
+
+			imageListeners.set(image, handleSettle);
+			image.addEventListener("load", handleSettle);
+			image.addEventListener("error", handleSettle);
+		}
+
+		// Every logo is needed to calculate a stable auto-width loop. Native lazy
+		// loading can otherwise leave off-screen slides at zero width indefinitely.
+		image.loading = "eager";
+
+		// Cover a cached image completing between the initial check and listener setup.
+		if (pendingImages.has(image) && image.complete) {
+			imageListeners.get(image)?.();
+		}
+	});
+
+	// Cached images may already be complete before listeners are attached.
+	if (pendingImages.size === 0) {
+		scheduleSingleRefresh();
+	} else {
+		// Do not leave the carousel inactive forever if an image never settles.
+		fallbackTimeout = window.setTimeout(
+			scheduleSingleRefresh,
+			IMAGE_LOAD_REFRESH_TIMEOUT_MS,
+		);
+	}
+
+	return { destroy };
 }
 
 function updateCenterSlideClass(splide, root, settings) {
@@ -523,6 +640,8 @@ function createSplideCarousel(root, settings, userSettings = {}) {
 	let centerSlideFrame = null;
 	let centerSlideLoopFrame = null;
 	let isCenterSlideLoopRunning = false;
+	let isDestroyed = false;
+	let hasActiveLayout = false;
 
 	function requestCenterSlideUpdate() {
 		if (!shouldUpdateCenterSlide(effectiveSettings)) {
@@ -572,6 +691,25 @@ function createSplideCarousel(root, settings, userSettings = {}) {
 
 		requestCenterSlideUpdate();
 	}
+
+	function refreshCarouselLayout() {
+		if (isDestroyed) return;
+
+		splide.refresh();
+		updateSplideState(splide, root, effectiveSettings);
+		requestCenterSlideUpdate();
+		pressLayoutCollision.update();
+	}
+
+	const imageLoadRefresh =
+		effectiveSettings.options.autoScroll === true
+			? createImageLoadRefreshController(slides, () => {
+					// If Splide mounted active, AutoScroll is already running and refreshing
+					// its loop here would cause a visible jump and another play request.
+					if (hasActiveLayout) return;
+					refreshCarouselLayout();
+				})
+			: { destroy() {} };
 
 	// Setup custom pagination if carousel-controls element exists within splide
 	const carouselControls = qs(root, ".carousel-controls");
@@ -635,10 +773,17 @@ function createSplideCarousel(root, settings, userSettings = {}) {
 
 	// Setup Splide event listeners
 	splide.on("mounted", () => {
+		hasActiveLayout ||= getSplideActiveState(splide);
 		updateSplideState(splide, root, effectiveSettings);
 		syncSplideAutoScrollForOverflow(splide, effectiveSettings);
 		requestCenterSlideUpdate();
 		pressLayoutCollision.update();
+	});
+
+	// AutoScroll may be paused by Splide's own initial positioning after the
+	// mounted event. Recheck its real state once the carousel is fully ready.
+	splide.on("ready", () => {
+		startSplideAutoScrollWhenReady(splide, effectiveSettings);
 	});
 
 	splide.on("move", (newIndex) => {
@@ -652,13 +797,14 @@ function createSplideCarousel(root, settings, userSettings = {}) {
 	});
 
 	splide.on("resize", () => {
+		hasActiveLayout ||= getSplideActiveState(splide);
 		updateSplideState(splide, root, effectiveSettings);
-		syncSplideAutoScrollForOverflow(splide, effectiveSettings);
 		requestCenterSlideUpdate();
 		pressLayoutCollision.scheduleUpdate();
 	});
 
 	splide.on("overflow", (isOverflow) => {
+		hasActiveLayout ||= isOverflow;
 		updateSplideDragForOverflow(splide, effectiveSettings, isOverflow);
 		updateSplideState(splide, root, effectiveSettings, isOverflow);
 		syncSplideAutoScrollForOverflow(splide, effectiveSettings, isOverflow);
@@ -682,6 +828,8 @@ function createSplideCarousel(root, settings, userSettings = {}) {
 
 	function destroy() {
 		logCarousel(root, "Destroying Splide carousel instance");
+		isDestroyed = true;
+		imageLoadRefresh.destroy();
 
 		if (viewportMediaQuery && handleViewportChange) {
 			viewportMediaQuery.removeEventListener("change", handleViewportChange);
@@ -731,10 +879,7 @@ function createSplideCarousel(root, settings, userSettings = {}) {
 		splide,
 		destroy,
 		reInit() {
-			splide.refresh();
-			updateSplideState(splide, root, effectiveSettings);
-			requestCenterSlideUpdate();
-			pressLayoutCollision.update();
+			refreshCarouselLayout();
 		},
 	};
 
