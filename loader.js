@@ -2,24 +2,11 @@ import { initCopyrightYear } from "./src/modules/copyright.js";
 import { initAccordions } from "./src/modules/accordions.js";
 import { initNav } from "./src/modules/nav.js";
 import {
-	initCarousels,
-	destroyCarousels,
-	reInitCarousels,
-	getCarouselInstances,
-} from "./src/modules/carousels/embla.js";
-import {
-	initCarousels as initSwiperCarousels,
-	destroyCarousels as destroySwiperCarousels,
-	reInitCarousels as reInitSwiperCarousels,
-	getCarouselInstances as getSwiperCarouselInstances,
-} from "./src/modules/carousels/swiper.js";
-import {
 	initCarousels as initSplideCarousels,
 	destroyCarousels as destroySplideCarousels,
 	reInitCarousels as reInitSplideCarousels,
 	getCarouselInstances as getSplideCarouselInstances,
 } from "./src/modules/carousels/splide.js";
-import { initUseCaseCustomSwiper } from "./src/modules/carousels/swiper-custom.js";
 import { initOverflowDrag } from "./src/modules/overflow-drag.js";
 import { initForms, destroySelects } from "./src/modules/forms/index.js";
 import { initQaUpload } from "./src/modules/forms/qa-upload.js";
@@ -58,19 +45,14 @@ sr.defs.breakpointQueries = BREAKPOINT_QUERIES;
 sr.functions.initCopyrightYear = initCopyrightYear;
 sr.functions.initAccordions = initAccordions;
 sr.functions.initNav = initNav;
-sr.functions.initCarousels = initCarousels;
-sr.functions.destroyCarousels = destroyCarousels;
-sr.functions.reInitCarousels = reInitCarousels;
-sr.functions.getCarouselInstances = getCarouselInstances;
-sr.functions.initSwiperCarousels = initSwiperCarousels;
-sr.functions.destroySwiperCarousels = destroySwiperCarousels;
-sr.functions.reInitSwiperCarousels = reInitSwiperCarousels;
-sr.functions.getSwiperCarouselInstances = getSwiperCarouselInstances;
+sr.functions.initCarousels = initSplideCarousels;
+sr.functions.destroyCarousels = destroySplideCarousels;
+sr.functions.reInitCarousels = reInitSplideCarousels;
+sr.functions.getCarouselInstances = getSplideCarouselInstances;
 sr.functions.initSplideCarousels = initSplideCarousels;
 sr.functions.destroySplideCarousels = destroySplideCarousels;
 sr.functions.reInitSplideCarousels = reInitSplideCarousels;
 sr.functions.getSplideCarouselInstances = getSplideCarouselInstances;
-sr.functions.initUseCaseCustomSwiper = initUseCaseCustomSwiper;
 sr.functions.initOverflowDrag = initOverflowDrag;
 sr.functions.initForms = initForms;
 sr.functions.destroySelects = destroySelects;
@@ -101,10 +83,7 @@ initQaUpload();
 // Priority: high
 initTabs();
 initOverflowDrag();
-initCarousels();
-initSwiperCarousels();
 initSplideCarousels();
-initUseCaseCustomSwiper();
 initAccordions();
 initLoadMore();
 initTables();

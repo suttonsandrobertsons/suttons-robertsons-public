@@ -1,3 +1,18 @@
 #!/bin/sh
 # Rebuild the bundle and stage it so dist/loader.js never drifts from src/.
+
+if ! command -v npm >/dev/null 2>&1; then
+	NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
+
+	if [ -s "$NVM_DIR/nvm.sh" ]; then
+		export NVM_DIR
+		. "$NVM_DIR/nvm.sh"
+	fi
+fi
+
+if ! command -v npm >/dev/null 2>&1; then
+	echo "pre-commit: npm was not found. Install Node.js or ensure npm is available on PATH." >&2
+	exit 1
+fi
+
 npm run build && git add dist/loader.js
