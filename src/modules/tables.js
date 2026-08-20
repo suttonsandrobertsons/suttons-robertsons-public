@@ -28,6 +28,7 @@ const ATTRIBUTES = {
 	alignFirstColumn: "data-table-align-first-column",
 	highlightColumn: "data-table-highlight-col",
 	generatedHighlight: "data-table-generated-highlight",
+	generatedWrapper: "data-table-generated-wrapper",
 };
 
 const CLEANUP_KEY = "__comparisonTableCleanup";
@@ -37,7 +38,10 @@ const ALIGN_FIRST_COLUMN_VALUES = new Set(["center", "left"]);
 export function initTables() {
 	ensureTableStyles();
 
-	document.querySelectorAll(SELECTORS.component).forEach((component) => {
+	document.querySelectorAll(SELECTORS.component).forEach((source) => {
+		if (isTableInsideTableComponent(source)) return;
+
+		const component = normaliseTableComponent(source);
 		const table = component.querySelector(SELECTORS.desktopTable);
 		if (!table) {
 			console.warn("[tables] No table found inside table component.", component);
@@ -70,6 +74,44 @@ export function initTables() {
 			console.warn("[tables]", error);
 		}
 	});
+}
+
+function isTableInsideTableComponent(element) {
+	return (
+		element.matches(SELECTORS.desktopTable) &&
+		Boolean(element.parentElement?.closest(SELECTORS.component))
+	);
+}
+
+function normaliseTableComponent(component) {
+	if (
+		!component.matches(SELECTORS.desktopTable) ||
+		component.getAttribute("data-table") !== "responsive"
+	) {
+		return component;
+	}
+
+	const wrapper = document.createElement("div");
+
+	Array.from(component.attributes).forEach((attribute) => {
+		if (!isTableConfigurationAttribute(attribute.name)) return;
+
+		wrapper.setAttribute(attribute.name, attribute.value);
+
+		if (attribute.name === "data-table") {
+			component.removeAttribute(attribute.name);
+		}
+	});
+
+	wrapper.setAttribute(ATTRIBUTES.generatedWrapper, "");
+	component.before(wrapper);
+	wrapper.appendChild(component);
+
+	return wrapper;
+}
+
+function isTableConfigurationAttribute(attributeName) {
+	return attributeName === "data-table" || attributeName.startsWith("data-table-");
 }
 
 function ensureTableStyles() {
