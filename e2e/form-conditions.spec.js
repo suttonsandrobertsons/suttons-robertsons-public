@@ -1,8 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { pickRadio, fieldState, LEAD_FORMS } from "./helpers/forms.js";
 
-// Structure and conditional-visibility cover for every lead form. No submissions
-// at all here — these assert the published markup and the conditions engine.
+// No submissions here — these tests assert markup and conditions-engine state only.
 
 const ENQUIRY_FORMS = LEAD_FORMS;
 
@@ -30,7 +29,6 @@ test.describe("enquiry question — shape on every lead form", () => {
     test(`${key} on ${path} gates the follow-ups on a sell enquiry`, async ({ page }) => {
       await page.goto(path);
 
-      // Loan: both follow-ups hidden and not blocking.
       expect(await pickRadio(page, key, "enquiry_type", "Loan")).toBe(true);
       await page.waitForTimeout(700);
       for (const name of ["enquiry_consider_loan", "enquiry_consider_consignment"]) {
@@ -40,7 +38,6 @@ test.describe("enquiry question — shape on every lead form", () => {
         expect(hidden.conditionHidden).toBe(true);
       }
 
-      // Sell: both revealed, required, Yes/No.
       expect(await pickRadio(page, key, "enquiry_type", "Sell My Items")).toBe(true);
       await page.waitForTimeout(700);
       for (const name of ["enquiry_consider_loan", "enquiry_consider_consignment"]) {
@@ -129,7 +126,6 @@ test.describe("gold calculator — enquiry still drives the quote basis", () => 
     const sell = await priceOneItem("Sell My Items");
     expect(sell.total).toBe(sell.purchase);
     expect(sell.rowVisible).toBe(true);
-    // Purchase basis is always the higher of the two.
     expect(Number(sell.purchase)).toBeGreaterThan(Number(sell.loan));
   });
 });
@@ -160,7 +156,6 @@ test.describe("box_and_papers — the other combination field still dedups", () 
     expect(group.values).toEqual([
       "Original Box and Papers", "Original Box Only", "Original Papers Only", "None",
     ]);
-    // Nothing answered yet, so no combination is active and none may submit.
     expect(group.liveNames, "no combination may submit before the questions are answered").toBe(0);
   });
 

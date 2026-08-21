@@ -9,6 +9,8 @@ export function initProcess() {
 
 		if (!items.length) return;
 
+		// Every item gets a connecting line, including the last: dropping it would
+		// leave the final number with nothing to animate in on.
 		// const lines = items.slice(0, -1);
 		const lines = items;
 

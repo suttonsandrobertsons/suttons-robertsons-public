@@ -53,10 +53,16 @@ export const formChoices = {
     });
   },
 
+  // Resolution order: explicit data-form-name, then the control's own name,
+  // then the enclosing group's name — the ordinary case.
   getCheckboxFieldName(checkbox) {
     return checkbox.getAttribute('data-form-name') || checkbox.name || this.getCheckboxGroupName(checkbox);
   },
 
+  // A radio group IS its shared `name` in HTML, so every input must carry it
+  // or the browser will not group them. A checkbox group has no native
+  // equivalent — it is synthesised here — so members can inherit the name from
+  // the wrapper instead of repeating it. The asymmetry is HTML's, not this system's.
   getCheckboxGroupName(checkbox) {
     const group = checkbox.closest(SELECTORS.choiceGroup);
     if (!group) return '';
@@ -212,9 +218,9 @@ export const formChoices = {
         hidden.disabled = false;
       }
 
-      // Disable the native checkboxes so only the aggregated hidden field is
-      // submitted under the colliding name. Re-enable is not done here: the next
-      // render pass (formFields.render -> shouldDisableControlDuringRender) clears
+      // Disables the native checkboxes so only the aggregated hidden field
+      // submits under the colliding name. Not re-enabled here: the next render
+      // pass (formFields.render -> shouldDisableControlDuringRender) clears
       // disabled on all non-file controls, so a failed/non-navigating submit
       // recovers on the next refresh.
       group.checkboxes.forEach((checkbox) => {
@@ -275,7 +281,7 @@ export const formChoices = {
       return true;
     }
 
-    // A checkbox toggle always flips state, so this is always a change.
+    // A checkbox always flips, so this is always a change.
     input.checked = !wasChecked;
     return true;
   },

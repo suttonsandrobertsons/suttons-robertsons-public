@@ -37,7 +37,6 @@ describe('field defect fixes', () => {
 
     expect(radios[0].hasAttribute('aria-invalid')).toBe(false)
     expect(radios[1].hasAttribute('aria-invalid')).toBe(false)
-    // The unrelated radio group must be left untouched.
     expect(radios[2].hasAttribute('aria-invalid')).toBe(true)
   })
 
@@ -79,7 +78,6 @@ describe('field defect fixes', () => {
     formFields.prepareControlsForSubmit(form)
 
     const names = formPayload(form).map(([name]) => name)
-    // No checkbox selected -> the aggregate hidden must not submit as `interests=`.
     expect(names).not.toContain('interests')
   })
 

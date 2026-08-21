@@ -4,8 +4,28 @@ import { formValues, formFields } from './fields.js';
 import { formChoices } from './choices.js';
 import { getFormApp } from './lazy-app.js';
 
-// 7. CONDITIONAL LOGIC (SHOW-IF/HIDE-IF)
+// SUBMIT-TIME AND URL-TIME CONCERNS
 // ============================================================================
+// The filename names only the first export. This file holds six unrelated
+// concerns. Check this map before searching further:
+//
+//   formConditions   show-if / hide-if evaluation
+//   formSteps        multi-step navigation and step validation
+//   formRedirect     redirect-mode forms (home-hero, loan, fulfilment-finder)
+//   formAttribution  UTM capture, the lead reference, and `quote_url`
+//   formSuccessPage  thank-you hydration and the dataLayer push
+//   formParams       URL-param prefill and URL state sync
+//
+// `brand` appears here twice — in formAttribution's quote_url coalescing and
+// in formParams' prefill — and neither is the combined `brands` field built by
+// formFieldGroups in fields.js. This has repeatedly been mistaken for a
+// derived field; see docs/developer/webflow-authoring.md in the private repository.
+// ============================================================================
+
+// CONDITIONAL LOGIC (SHOW-IF / HIDE-IF)
+// ----------------------------------------------------------------------------
+// `hide-if` is fully supported but has no known use in the Designer — it was
+// added for symmetry with `show-if`. Do not assume a rule uses it.
 export const formConditions = {
   _synthesizeRule(element, groupAttr, valueAttr) {
     const group = (element.getAttribute(groupAttr) || '').trim();
@@ -105,6 +125,10 @@ export const formConditions = {
     return String(ruleList || '')
       .split(';')
       .flatMap((segment) => {
+        // A plain split on "," breaks a value containing a comma (e.g. "Hello,
+        // world"). Split only where the comma starts a new rule (a negation,
+        // or a field name plus operator) — see getRules tests for the cases
+        // that must not split.
         return segment.split(/,(?=\s*(?:![a-zA-Z_][a-zA-Z0-9_-]*\s*(?:,|$)|[a-zA-Z_][a-zA-Z0-9_-]*\s*(?:>=|<=|!=|=|>|<)))/);
       })
       .map((rule) => rule.trim())
@@ -212,7 +236,7 @@ export const formConditions = {
 };
 
 // ============================================================================
-// 7. STEPS NAVIGATION
+// STEPS NAVIGATION
 // ============================================================================
 export const formSteps = {
   goBy(form, direction) {
@@ -321,13 +345,8 @@ export const formSteps = {
         const offset = 20;
         const targetTop = Math.max(window.pageYOffset + rect.top - offset, 0);
 
-        // Always realign to the TOP of the step/form. The previous check only
-        // scrolled when the step was off-screen or below a 0–260px band, so
-        // when a taller step collapsed (display:none) and the browser clamped
-        // the retained scroll position down near the footer, the next step's
-        // top could fall inside that band and no correction fired — leaving the
-        // viewport at the bottom of the next step. A plain
-        // distance check corrects both the too-low (footer) and too-high cases.
+        // Always realign to the top of the step or form — a plain distance
+        // check, so it corrects both an under-scroll and an over-scroll.
         if (Math.abs(window.pageYOffset - targetTop) < 2) return;
 
         try {
@@ -399,17 +418,12 @@ export const formSteps = {
     });
   },
 
-  // Deep-link guard: given a requested target step index (e.g. from ?step=2),
-  // return the furthest index the visitor is actually allowed to land on. Every
-  // prior step's required/visible fields must already validate — this is the
-  // same gate "Continue" (goBy → validateCurrent) applies to forward navigation.
-  //
-  // Redirect-mode forms (home-hero, loan, fulfilment-finder) legitimately deep
-  // link to step 2 and prefill step-1 contact fields (name/email/phone) first,
-  // so when those prefills satisfy step 1 the visitor stays on the requested
-  // step. Only when a prior step has UNMET required fields do we clamp back to
-  // that earliest invalid step — closing the bypass where a lead could jump to
-  // ?step=2 and submit with an empty step 1.
+  // Deep-link guard: returns the furthest step index the customer may land on
+  // (e.g. from ?step=2). Clamps to the earliest step with unmet required
+  // fields — this closes the bypass where a lead jumps to ?step=2 and submits
+  // with an empty step 1. Redirect-mode forms (home-hero, loan,
+  // fulfilment-finder) legitimately deep-link to step 2 with step-1 contact
+  // fields prefilled, so satisfied prefills keep the customer on the requested step.
   clampToValidPriorSteps(form, requestedIndex) {
     if (requestedIndex <= 0) return requestedIndex;
 
@@ -420,8 +434,7 @@ export const formSteps = {
       if (!step) continue;
 
       // Evaluate each prior step in its own active context so conditions and
-      // validation see the correct step-visibility state, then reuse the shared
-      // scope validator rather than a parallel check.
+      // validation see the correct step-visibility state.
       form.stepIndex = index;
       getFormApp().refresh(form);
 
@@ -455,8 +468,8 @@ export const formSteps = {
       }
     }
 
-    // Validation is not navigation: restore the step the user was on before
-    // we scanned every available step (the loop left us on the last one).
+    // Validation is not navigation: restore the step the customer was on
+    // before the scan (the loop left stepIndex on the last available step).
     form.stepIndex = entryStepIndex;
     getFormApp().refresh(form);
 
@@ -464,6 +477,8 @@ export const formSteps = {
   },
 };
 
+// REDIRECT-MODE FORMS
+// ----------------------------------------------------------------------------
 export const formRedirect = {
   isRedirect(form) {
     return (form.root.getAttribute('data-form-mode') || '').trim().toLowerCase() === 'redirect';
@@ -479,16 +494,17 @@ export const formRedirect = {
     return form.root.getAttribute('data-form-redirect-form') || form.key;
   },
 
-  // Pure computation of the redirect destination URL.
-  // Separated from side-effecting navigation so callers (including tests) can assert on the exact URL
-  // without triggering jsdom navigation. submit() uses this then performs the assign.
+  // Pure computation of the redirect destination URL, separated from
+  // side-effecting navigation so callers (including tests) can assert on the
+  // URL without triggering jsdom navigation.
   computeTargetUrl(form, presetValues, attributionMeta) {
     const target = new URL(this.getTargetUrl(form), window.location.origin);
     const targetFormKey = this.getTargetFormKey(form);
     const targetForm = { key: targetFormKey };
 
-    // Ensure attribution + lead_reference are present for this redirect.
-    // Client requires stable unique ID / reference on all submissions and TY redirects for tracking pixels.
+    // Attribution and lead_reference must be present: the client needs a
+    // stable unique ID on every submission and thank-you redirect for
+    // tracking pixels.
     let uniqueId = attributionMeta?.uniqueId || form?.submissionMeta?.uniqueId || '';
     if (!uniqueId) {
       formAttribution.capture();
@@ -505,7 +521,6 @@ export const formRedirect = {
       } catch {}
     }
 
-    // Apply normal field redirect values first
     (presetValues || this.getRedirectValues(form)).forEach(({ name, values }) => {
       const paramName = formParams.getParamName(targetForm, name);
       target.searchParams.delete(paramName);
@@ -519,7 +534,8 @@ export const formRedirect = {
       });
     });
 
-    // Carry attribution + lead reference / ref for TY tracking pixels and S&R quote links.
+    // Carry attribution, lead reference and ref for thank-you tracking pixels
+    // and quote links.
     const clean = formAttribution.cleanUrl.bind(formAttribution);
 
     const trackingToSend = {
@@ -585,10 +601,10 @@ export const formRedirect = {
       addValues(this.getControlFieldKey(control), formValues.getControlValues(control));
     });
 
-    // The element pass above already emits every included control (keyed by
-    // getControlFieldKey, which prefers data-form-field). Only add field groups
-    // whose inputs were not already consumed, so a value isn't emitted twice
-    // under both the data-form-field key and the input.name key.
+    // The pass above already emits every included control (keyed by
+    // getControlFieldKey, preferring data-form-field). Add field groups only
+    // for inputs not already consumed, so a value isn't emitted twice under
+    // both keys.
     formParams.getFieldGroups(form).forEach((group) => {
       const fields = group.fields.filter((field) => !consumedControls.has(field));
       if (!fields.length) return;
@@ -638,20 +654,16 @@ const SUCCESS_SNAPSHOT_MAX_AGE_MS = 30 * 60 * 1000; // 30 minutes
 const TRACKING_VALUE_KEYS = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content', 'gclid', 'fbclid'];
 
 // A valid UTM/click-id value never contains whitespace. WhatsApp (and some
-// email clients) auto-detect links and greedily absorb trailing text into the
-// URL — a "Hello" greeting placed after the link turns `utm_medium=direct`
-// into `direct Hello`, and a newline turns it into `whatsapp\nHello`. Left
-// unchecked these corrupted values flow verbatim into the attribution store,
-// the hidden form fields, the dataLayer `form_submission` event, the
-// redirect-form params AND the pre-filled WhatsApp link — all the way to Zoho.
-// Normalise control chars/newlines/tabs to spaces, trim, then keep only the
-// first whitespace-delimited token so any corrupted value (inbound OR already
-// persisted) is neutralised at the single choke point.
+// email clients) auto-link and greedily absorb trailing text — a "Hello"
+// placed after the link turns `utm_medium=direct` into `direct Hello`.
+// Uncaught, this corruption flows into storage, hidden fields, the dataLayer
+// push, redirect params and the WhatsApp link itself, all the way to Zoho.
+// Normalise control chars to spaces, trim, then keep only the first token —
+// this single choke point cleans both inbound and already-persisted values.
 function sanitizeUtmValue(v) {
   return String(v ?? '').replace(/[\u0000-\u0020]+/g, ' ').trim().split(/\s+/)[0] || '';
 }
 
-// Sanitize every tracking key on an attribution object in place and return it.
 function sanitizeTrackingValues(obj) {
   if (!obj || typeof obj !== 'object') return obj;
   TRACKING_VALUE_KEYS.forEach((key) => {
@@ -660,7 +672,8 @@ function sanitizeTrackingValues(obj) {
   return obj;
 }
 
-// Cookie fallback for attribution (private browsing / localStorage quota resilience)
+// Cookie fallback for attribution: resilience against private browsing and
+// localStorage quota limits.
 function readCookie(name) {
   if (typeof document === 'undefined' || !document.cookie) return null;
   const escaped = name.replace(/([.$?*|{}()\[\]\\\/+^])/g, '\\$1');
@@ -680,10 +693,9 @@ function writeCookie(name, value, days = 30) {
   }
 }
 
-// Attribution capture and the form_submission dataLayer push are not gated in
-// this bundle; consent is enforced upstream (Consent Pro + Google Consent Mode
-// govern the marketing tags by category). Full consent posture, rationale and
-// review actions are kept in an internal note (not committed).
+// Attribution capture and the form_submission dataLayer push are not gated
+// here; consent is enforced upstream (Consent Pro + Google Consent Mode).
+// Consent posture and rationale are kept in an internal note (not committed).
 
 // Infer UTM-equivalent source/medium when no paid/UTM signals are present.
 function inferUntrackedAttribution() {
@@ -711,6 +723,8 @@ function inferUntrackedAttribution() {
   }
 }
 
+// ATTRIBUTION, THE LEAD REFERENCE, AND quote_url
+// ----------------------------------------------------------------------------
 export const formAttribution = {
   // Exposed so callers reading UTM values from a source that bypasses the
   // store (e.g. the contact widget's raw-URL fallback) can apply the same
@@ -724,7 +738,6 @@ export const formAttribution = {
     const firstLanding = existing.first_landing_url || existing.first_page || this.cleanUrl(window.location.href);
     const urlParams = new URLSearchParams(window.location.search);
 
-    // Start from existing or URL params
     let utm_source = existing.utm_source || urlParams.get('utm_source') || '';
     let utm_medium = existing.utm_medium || urlParams.get('utm_medium') || '';
     let utm_campaign = existing.utm_campaign || urlParams.get('utm_campaign') || '';
@@ -733,7 +746,7 @@ export const formAttribution = {
     let gclid = existing.gclid || urlParams.get('gclid') || '';
     let fbclid = existing.fbclid || urlParams.get('fbclid') || '';
 
-    // Organic referrer inference when no paid/UTM signals are present (client requirement)
+    // Organic referrer inference when no paid/UTM signal exists — a client requirement.
     const hasPaidSignal = Boolean(gclid || fbclid || utm_source || utm_medium || utm_campaign);
     let hasInferredSignal = false;
     if (!hasPaidSignal) {
@@ -822,16 +835,15 @@ export const formAttribution = {
     const lastName = this.getLastName(form);
     // Surname anchor: uppercase A–Z only, capped so a long or edge-case name
     // can't bloat the reference (customers read it over the phone) or overflow
-    // the worker's 80-char safeReference cap. Falls back to "SR" when a name
+    // the Worker's 80-char safeReference cap. Falls back to "SR" when a name
     // strips to nothing (e.g. non-Latin characters -> empty).
     const prefix = String(lastName || '').toUpperCase().replace(/[^A-Z]/g, '').slice(0, 20) || 'SR';
 
-    // 40 bits of randomness as two 4-char Crockford base32 groups (no ambiguous
-    // I L O U, no 0/O or 1/l confusion) for reading aloud. This carries BOTH
-    // uniqueness (a clash needs the same surname AND the same 40-bit block) and
-    // unguessability. The old timestamp + per-device counter are gone — Zoho
-    // keeps its own created-time. The /folder upload link is HMAC-signed
-    // regardless, so this block is defence-in-depth, not the access control.
+    // 40 bits of randomness as two 4-char Crockford base32 groups (no
+    // ambiguous I L O U, no 0/O or 1/l confusion) for reading aloud. Carries
+    // both uniqueness (a clash needs the same surname AND the same 40-bit
+    // block) and unguessability. The /folder upload link is HMAC-signed
+    // regardless — this block is defence-in-depth, not the access control.
     const ALPHABET = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
     const bytes = new Uint8Array(5);
     try {
@@ -862,12 +874,11 @@ export const formAttribution = {
     return `${prefix}-${code.slice(0, 4)}-${code.slice(4, 8)}`;
   },
 
-  // Returns the form's reference, generating and caching it on first call.
-  // getLeadReference() increments a persisted counter each call, so it must be
-  // generated ONCE per form and reused everywhere (uploads, hidden fields,
-  // redirects). Callers that need the reference before submit (e.g. file
-  // uploads, which fire on file-select) go through here so the Cloudflare
-  // storage folder and the Zoho record share one identical reference.
+  // Generates the reference once per form and caches it — getLeadReference()
+  // draws fresh random bits every call, so callers must go through here to
+  // reuse the same value everywhere (uploads, hidden fields, redirects).
+  // Uploads need it before submit (fired on file-select), so the storage
+  // folder and the Zoho record share one reference.
   ensureReference(form) {
     if (form?.submissionMeta?.uniqueId) return form.submissionMeta.uniqueId;
     const root = form?.root instanceof HTMLFormElement
@@ -922,10 +933,10 @@ export const formAttribution = {
     formValues.setHidden(root, 'lead_reference', uniqueId);
     formValues.setHidden(root, 'quote_url', this.getQuoteUrl({ root }, uniqueId));
 
-    // Signed link to this enquiry's folder page — captured from the upload
-    // worker's response (the form can't build it; it's HMAC-signed server-side).
+    // Signed link to this enquiry's folder page — captured from the Worker's
+    // upload response (the form can't build it; it's HMAC-signed server-side).
     // This is the single field mapped into one Zoho URL field for ALL
-    // attachments (images, videos, PDFs). Read before we overwrite submissionMeta.
+    // attachments (images, videos, PDFs). Read before submissionMeta is overwritten.
     const folderUrl = form?.submissionMeta?.folderUrl || '';
     // Always emit the field so downstream mappings have a stable contract. Empty
     // means this submission has no uploaded-file folder link yet.
@@ -1036,8 +1047,9 @@ export const formAttribution = {
       this.setParam(target.searchParams, name, values[name]);
     });
 
-    // Client requirement: TY redirect must carry Reference (capital R) for tracking pixels (Ruler, GA, Google Ads, Meta).
-    // Also include lowercase reference + ref for compatibility with our internal success handling and quote links.
+    // Client requirement: the redirect must carry Reference (capital R) for
+    // tracking pixels (Ruler, GA, Google Ads, Meta), plus lowercase reference
+    // and ref for internal success handling and quote links.
     if (uniqueId) {
       this.setParam(target.searchParams, 'Reference', uniqueId);
       this.setParam(target.searchParams, 'ref', uniqueId);
@@ -1058,25 +1070,22 @@ export const formAttribution = {
 
     const valueFor = (names) => this.getFieldValue(form, names);
 
-    // Snapshot carries exactly two things: (a) the field names a thank-you page
-    // can actually RENDER (see src/modules/forms/THANK-YOU-OUTPUTS.md) —
-    // `reference`, plus the structural `form`/`enquiry_type`/`asset_type` keys
-    // `getSuccessData` surfaces; and (b) the PII the `form_submission` dataLayer
-    // push needs on the TY page (`email`/`phone`). Standard lead forms do a
-    // native full-page POST, so the pre-handoff dataLayer push races unload and
-    // doesn't survive — the authoritative push now fires on TY load
-    // (`formSuccessPage.trackSuccess`) from this snapshot, then clears it.
-    // `unique_id`/`form_category` are derived on the TY page from `reference`/
-    // `form`; UTMs/gclid/fbclid come from `sr_attribution` (which persists), so
-    // they are NOT duplicated here. All OTHER PII (appointment/amount/
-    // contact_method/item_type/brand/courier_*) is still deliberately dropped.
+    // Snapshot carries only: (a) what a TY page can render — `reference`, plus
+    // the structural `form`/`enquiry_type`/`asset_type` keys `getSuccessData`
+    // surfaces (see docs/developer/thank-you-outputs.md in the private repo);
+    // and (b) `email`/`phone` for the `form_submission` dataLayer push, which
+    // fires on TY load (`trackSuccess`) because a native POST races unload and
+    // loses the pre-handoff push. `unique_id`/`form_category` derive on the TY
+    // page from `reference`/`form`; UTM/gclid/fbclid come from `sr_attribution`
+    // instead. All other PII (appointment/amount/contact_method/item_type/
+    // brand/courier_*) is deliberately dropped.
     const snapshot = {
       reference,
       form: form.key,
       enquiry_type: valueFor(['enquiry_type']),
       asset_type: valueFor(['asset_type']),
-      // Retained for the TY-page form_submission push (GTM enhanced conversions),
-      // NOT rendered by hydrateOutputs; cleared straight after the push fires.
+      // Retained for the TY-page form_submission push (GTM enhanced
+      // conversions). Not rendered by hydrateOutputs; cleared once the push fires.
       email: valueFor(['email']),
       phone: this.getPhoneValue(form),
     };
@@ -1134,7 +1143,7 @@ export const formAttribution = {
     } catch (e) {
       console.warn('[Suttons Attribution] Storage write failed:', e?.message || e);
     }
-    // Always try to mirror critical keys to the cookie as a resilient secondary store
+    // Always mirror critical keys to the cookie as a resilient secondary store.
     try {
       const cookiePayload = {
         first_landing_url: data.first_landing_url,
@@ -1178,6 +1187,8 @@ export const formAttribution = {
   },
 };
 
+// THANK-YOU PAGE HYDRATION AND THE SUCCESS dataLayer PUSH
+// ----------------------------------------------------------------------------
 export const formSuccessPage = {
   hasScrolled: false,
 
@@ -1241,17 +1252,14 @@ export const formSuccessPage = {
       }
     });
 
-    // NB: the snapshot is intentionally NOT cleared here. `trackSuccess` runs
-    // right after hydrate in boot() and needs the snapshot alive to fire the
-    // `form_submission` push; it clears the snapshot once the push has fired
-    // (ordering guarantee — the push always reads before the clear).
+    // Not cleared here: trackSuccess runs right after hydrate in boot() and
+    // needs the snapshot alive to fire the `form_submission` push. It clears
+    // the snapshot only after the push has read it.
   },
 
-  // Fired once on thank-you page load (from formApp.boot, after hydrateOutputs).
-  // Standard lead forms navigate away via a native POST, so the pre-handoff
-  // dataLayer push races page-unload and `dataLayer` doesn't survive. This
-  // reads the stored success snapshot (which DOES survive navigation) and fires
-  // the authoritative `form_submission` event, matching pushDataLayer's shape.
+  // Fires the authoritative `form_submission` push from the stored snapshot,
+  // since a native POST races unload and the pre-handoff push doesn't
+  // survive. Matches pushDataLayer's event shape.
   pushedReferences: new Set(),
   hasPushedNoRef: false,
 
@@ -1261,10 +1269,10 @@ export const formSuccessPage = {
     const reference = params.get('Reference') || params.get('reference') || params.get('ref') || '';
     // Read the raw snapshot (holds email/phone) — reference-keyed first, else _latest.
     const snapshot = this.readStoredSnapshot(reference);
-    if (!snapshot || Object.keys(snapshot).length === 0) return; // no snapshot → no push
+    if (!snapshot || Object.keys(snapshot).length === 0) return;
 
     const pushed = this.pushSuccessEvent(snapshot);
-    // Ordering guarantee: clear ONLY after the push has read the snapshot.
+    // Ordering guarantee: clear only after the push has read the snapshot.
     if (pushed) this.clearStoredSnapshot(snapshot.reference || reference);
   },
 
@@ -1309,10 +1317,10 @@ export const formSuccessPage = {
     const reference = params.get('Reference') || params.get('reference') || params.get('ref') || '';
     const stored = this.readStoredSnapshot(reference);
 
-    // Surface ONLY the render-allowed structural keys. The snapshot also holds
-    // email/phone for the form_submission push (see storeSuccessSnapshot), but
-    // those must never be rendered by a TY output hook, so they are deliberately
-    // NOT spread out here — trackSuccess reads them straight off the snapshot.
+    // Only the render-allowed structural keys. email/phone (for the
+    // form_submission push, see storeSuccessSnapshot) must never render via a
+    // TY output hook, so they're excluded here — trackSuccess reads them
+    // directly off the snapshot.
     return {
       reference: reference || stored.reference || '',
       form: params.get('form') || stored.form || '',
@@ -1350,7 +1358,7 @@ export const formSuccessPage = {
   },
 
   // Remove the reference-keyed snapshot and the unscoped _latest fallback once
-  // it has been consumed by hydrateOutputs.
+  // it has been consumed by trackSuccess.
   clearStoredSnapshot(reference) {
     if (typeof window === 'undefined' || !window.sessionStorage) return;
     const keys = [
@@ -1369,7 +1377,11 @@ export const formSuccessPage = {
 };
 
 // ============================================================================
-// 9. URL STATE SYNCHRONIZATION
+// URL-PARAM PREFILL AND URL STATE SYNCHRONISATION
+// ============================================================================
+// This is the third value-matching regime: lowercased, with an alias table, and
+// applied only when prefilling from query params — never on submit. The other
+// two are normalizeSlug (gold.js) and exact/case-sensitive (matchesEquality).
 // ============================================================================
 const WRAPPED_HISTORY_FLAG = Symbol.for('suttons.forms.wrappedHistoryMethod');
 
@@ -1514,10 +1526,7 @@ export const formParams = {
 
     const requestedIndex = Math.min(stepNumber - 1, form.steps.length - 1);
 
-    // Don't trust the requested step blindly: clamp to the earliest step whose
-    // required fields aren't yet satisfied, so ?step=2 can't bypass step-1
-    // validation. Legitimate redirect prefill (name/email/phone already set)
-    // passes the gate and stays on the requested step.
+    // clampToValidPriorSteps enforces the step-1 bypass guard here.
     form.stepIndex = formSteps.clampToValidPriorSteps(form, requestedIndex);
   },
 
@@ -1749,7 +1758,7 @@ export const formParams = {
       return !formValues.isChoiceField(field) && !(field.tagName === 'SELECT' && field.multiple);
     });
 
-    // For scalar fields, combine all non-empty values (handles phone prefix + number)
+    // Combine every non-empty scalar value (handles phone prefix + number).
     const scalarValues = [];
     scalarFields.forEach((field) => {
       if (!formValues.shouldReadField(field)) return;
@@ -1758,7 +1767,6 @@ export const formParams = {
     });
     if (scalarValues.length) values.push(scalarValues.join(''));
 
-    // For choice/multiple fields, collect all values
     fields.forEach((field) => {
       if (!formValues.shouldReadField(field)) return;
 

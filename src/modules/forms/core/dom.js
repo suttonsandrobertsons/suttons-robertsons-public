@@ -7,7 +7,7 @@ export const formLogger = {
 };
 
 // ============================================================================
-// 1. CORE DOM UTILITIES
+// CORE DOM UTILITIES
 // ============================================================================
 export const formDom = {
   hiddenDisplays: new WeakMap(),
@@ -48,17 +48,13 @@ export const formDom = {
     return Boolean(element.closest("[data-form-state~='step-hidden']"));
   },
 
-  // A field hidden purely by CSS (a designer `display:none` class on it or any
-  // ancestor) is not covered by our own condition/step state attributes, yet it
-  // must not block submit with an error the user can never see. Treat it as
-  // skip-if-hidden when it is genuinely not rendered.
+  // A field hidden by CSS alone (a designer `display:none` on it or an
+  // ancestor) carries none of our condition/step state, but must still count
+  // as hidden — otherwise submit blocks on an error the customer can't see.
   //
-  // Computed `display`/`visibility` are the authority (they work with or without
-  // layout, e.g. under jsdom). `offsetParent === null` is used only as a
-  // fast-path when the environment actually performs layout — and never for
-  // `position:fixed` elements, whose offsetParent is always null even when fully
-  // visible. Walking ancestors' computed display catches `display:none` set on
-  // an ancestor, which the element's own computed display does not reveal.
+  // Computed `display`/`visibility` is authoritative: it works under jsdom too.
+  // `offsetParent === null` is only a fast-path for real layout, and never for
+  // `position:fixed` (offsetParent is always null there, even when visible).
   isVisuallyHidden(element) {
     if (!isDomElement(element)) return false;
     if (typeof window === 'undefined' || !window.getComputedStyle) return false;
@@ -66,13 +62,13 @@ export const formDom = {
     const ownStyle = window.getComputedStyle(element);
     if (ownStyle.display === 'none' || ownStyle.visibility === 'hidden') return true;
 
-    // Fast-path: only trust offsetParent when the environment does layout
-    // (jsdom reports null for everything). Exclude position:fixed.
+    // jsdom reports offsetParent as null for everything, so trust it only when
+    // hasLayoutEngine confirms real layout. Excludes position:fixed.
     if (element.offsetParent === null && ownStyle.position !== 'fixed' && this.hasLayoutEngine()) {
       return true;
     }
 
-    // Authority for ancestor hiding: walk up checking computed display/visibility.
+    // Catches display:none set on an ancestor rather than the element itself.
     let ancestor = element.parentElement;
     while (ancestor) {
       const style = window.getComputedStyle(ancestor);
@@ -83,8 +79,8 @@ export const formDom = {
     return false;
   },
 
-  // Detects whether the environment performs layout (real browser) vs. jsdom,
-  // where offsetParent is always null and cannot be used to infer visibility.
+  // True in a real browser; false under jsdom, where offsetParent is always
+  // null and cannot signal visibility.
   hasLayoutEngine() {
     if (typeof document === 'undefined' || !document.body) return false;
     return document.body.offsetParent !== null || document.body.offsetHeight > 0;
@@ -140,11 +136,9 @@ export const formDom = {
       }
     };
 
-    // Stamp the owning element AND every descendant. This is intentional and
-    // load-bearing: our CSS styling selectors target `data-form-state` on
-    // descendant nodes (not just the owning element), so styling breaks if the
-    // attribute is only set on the owner. Do NOT reduce this to `applyState(element)`
-    // alone — descendant stamping is required for the form styling system.
+    // Stamps the owning element AND every descendant. Required: CSS styling
+    // selectors target `data-form-state` on descendant nodes, not only the
+    // owner, so styling breaks if `applyState(element)` alone is called.
     applyState(element);
     element.querySelectorAll('*').forEach(applyState);
   },
@@ -196,6 +190,4 @@ export const formDom = {
   },
 };
 
-// ============================================================================
-// 2. VALUES EXTRACTOR & GENERATOR
-// ============================================================================
+// `formValues`, which used to follow this line, now lives in fields.js.

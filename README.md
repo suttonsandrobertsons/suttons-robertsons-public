@@ -7,6 +7,7 @@ Front-end JavaScript for the Suttons & Robertsons Webflow site. The built bundle
 npm install     # installs deps + the build hook
 npm run build   # bundles loader.js → dist/loader.js
 npm test        # vitest
+npm run test:e2e # playwright
 ```
 
 Loaded on the site with:
@@ -16,4 +17,5 @@ Loaded on the site with:
   src="https://cdn.jsdelivr.net/gh/suttonsandrobertsons/suttons-robertsons-public@COMMIT_SHA/dist/loader.js"></script>
 ```
 
-Documentation is maintained separately.
+Documentation is maintained separately. `SIMPLE.md` / `AGENTS.md` / `CLAUDE.md` are
+notes for AI coding assistants and have no effect on the built bundle.

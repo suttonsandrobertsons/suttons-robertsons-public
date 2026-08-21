@@ -49,7 +49,6 @@ describe('deep-link step guard', () => {
     setUrl('?step=2')
     const form = mountQuoteForm()
 
-    // Bypass attempt: no prefill, so the visitor must stay on step 1.
     expect(form.stepIndex).toBe(0)
     expect(formSteps.getCurrentNumber(form)).toBe(1)
   })
@@ -58,7 +57,6 @@ describe('deep-link step guard', () => {
     setUrl('?step=2&firstName=Dave&email=dave%40example.com')
     const form = mountQuoteForm()
 
-    // Legitimate redirect prefill satisfies step 1, so step 2 is allowed.
     expect(form.root.querySelector('[name="first_name"]').value).toBe('Dave')
     expect(form.root.querySelector('[name="email"]').value).toBe('dave@example.com')
     expect(form.stepIndex).toBe(1)

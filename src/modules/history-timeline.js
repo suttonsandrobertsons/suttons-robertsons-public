@@ -127,6 +127,8 @@ function hideInactiveMedia(cards) {
 	});
 }
 
+// Computed synchronously from scroll position before ScrollTrigger fires, so
+// the first paint shows the right active card instead of flashing card 0.
 function getInitialIndex(items) {
 	const threshold = window.innerHeight * 0.45;
 	let activeIndex = 0;
@@ -173,6 +175,9 @@ function setupLine({ lineWrapper, line, finalCard, finalDate, isMobile = false }
 		},
 	});
 
+	// pinSpacing: false stops ScrollTrigger reserving layout space for the pin
+	// (which would otherwise push later cards down); the rail must sit fixed
+	// behind content that keeps scrolling past it.
 	const lineWrapperPinTrigger = ScrollTrigger.create({
 		trigger: lineWrapper,
 		start: "bottom center",

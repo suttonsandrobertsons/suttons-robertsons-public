@@ -13,5 +13,5 @@ export const BREAKPOINT_QUERIES = Object.freeze({
 
 export const DESKTOP_MEDIA_QUERY = BREAKPOINT_QUERIES.dsk;
 
-// Backward-compatible alias used by older modules/imports.
+// Lowercase alias: unused internally, kept only for a possible external consumer.
 export const breakpointQueries = BREAKPOINT_QUERIES;

@@ -73,10 +73,9 @@ function doRefresh(form) {
 
   setOutput(form, "loan_amount", formatMoney(amount));
   setOutput(form, "months", String(months));
-  // Always exactly 1 decimal so both bands read alike: 6.5% and 6.0%. Not
-  // formatNumber — its minimumFractionDigits is 0 and gold.js shares it. Only
-  // reached when a band matched (isEnquiry covers the rest), so never "0.0%".
-  // The submitted loan_interest_rate field below stays the raw numeric value.
+  // 1 decimal always (6.5%, 6.0%) — not formatNumber, which gold.js shares
+  // and defaults to 0 decimals. Only reached when a band matched, so never
+  // "0.0%"; loan_interest_rate below keeps the raw numeric value.
   setOutput(form, "interest_rate", isEnquiry ? "" : `${rate.toFixed(1)}%`);
   setOutput(form, "monthly_interest", isEnquiry ? "" : formatMoney(monthlyInterest));
   setOutput(form, "total_interest", isEnquiry ? "" : formatMoney(totalInterest));
@@ -93,11 +92,10 @@ function doRefresh(form) {
 export function calculateLoanSummary(amount, months, config = formConfig.loan) {
   const band = getRateBand(amount, config.rateBands);
   const competitorBand = getRateBand(amount, config.competitorRates);
-  // The loan slider caps at config.loan.max (the "£15,000+" position), which represents
-  // "£15,000 or more". At or above the cap the loan calculator is an enquiry so the
-  // Webflow "Interest rates on loans above £14,999 vary…" banner shows and no rate is
-  // submitted. This is a LOAN-CALCULATOR-level override only; getRateBand / rateBands are
-  // unchanged, so gold-derived loans of exactly £15,000 remain quotable at 6%.
+  // The slider caps at config.loan.max ("£15,000+"); at or above it, this
+  // calculator treats the amount as an enquiry (no rate submitted). Scoped
+  // to the loan calculator only — getRateBand/rateBands are unchanged, so
+  // gold-derived loans of exactly £15,000 stay quotable at 6%.
   const isEnquiry = !band || amount >= config.max;
 
   const rate = band ? band.interestRate : 0;
@@ -106,9 +104,8 @@ export function calculateLoanSummary(amount, months, config = formConfig.loan) {
   const totalRedeem = isEnquiry ? 0 : roundMoney(amount + totalInterest);
 
   const competitorRate = competitorBand ? competitorBand.rate : 0;
-  // Competitor rates in `config.loan.competitorRates` are MONTHLY, matching Suttons'
-  // monthly `interestRate`, so both totals use the same `rate% * months` basis. Do not
-  // divide by 12: a monthly basis is intended and correct.
+  // Competitor rates are MONTHLY, matching Suttons' monthly interestRate —
+  // do not divide by 12.
   const competitorTotal = competitorBand ? roundMoney(amount * (competitorRate / 100) * months) : 0;
   const competitorRedeem = competitorBand ? roundMoney(amount + competitorTotal) : 0;
   const savings = competitorBand && !isEnquiry ? roundMoney(competitorRedeem - totalRedeem) : 0;

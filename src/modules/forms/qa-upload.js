@@ -1,17 +1,14 @@
 /**
  * QA upload hook — programmatic file uploads for browser automation.
  *
- * Browser automation (Chrome, headless) can't drive the native OS file picker
- * and can't fill an `<input type="file">` by setting `.files`. That blocks any
- * automated test of an upload widget. This hook injects a `File` supplied from
- * code into the form's REAL upload path, so a test behaves exactly like a user
- * picking a file — same client validation, same worker POST, same value-field
- * population and routing — only the file's source differs (code, not a dialog).
+ * Browser automation can't drive the native file picker or set
+ * `<input type="file">`.files. This hook injects a `File` into the form's
+ * real upload path instead, so a test exercises the same client validation,
+ * Worker POST, and value-field population as a real pick.
  *
- * It is inert for real visitors: nothing invokes it unless a script passes a
- * File, and it grants no capability a visitor lacks (the widget already uploads
- * to the same worker with the same public client header). Registered on
- * `window.sr.forms` by initQaUpload() (called from the loader).
+ * Inert for real visitors (nothing invokes it without a script-supplied
+ * File) and grants no extra capability — same Worker, same public client
+ * header. Registered on `window.sr.forms` by initQaUpload() (loader).
  *
  *   await sr.forms.injectUploadFromUrl(0)        // 1st widget ← a real picsum JPEG
  *   await sr.forms.injectUploadFromUrl(1, "https://picsum.photos/1600/1200")
@@ -30,8 +27,8 @@ const EXT_BY_MIME = {
   "image/gif": ".gif",
 };
 
-// Resolve `target` (a widget element, a CSS selector, or a 0-based index into
-// the page's upload widgets) to its enclosing [data-form-upload] element.
+// Resolves `target` (a widget element, a CSS selector, or a 0-based index
+// into the page's upload widgets) to its enclosing [data-form-upload] element.
 function resolveUpload(target) {
   let el = target;
   if (typeof target === "number") {

@@ -25,15 +25,12 @@ import { initAddressForms } from "./address.js";
 import { scheduleAfterDomUpdate } from "./core/webflow.js";
 import { formSync, SYNC_FORM_SELECTOR } from "./core/sync.js";
 import { initSyncSubmitGuard } from "./core/events.js";
-// import "./dev.js"; // dev-only form logging/table — keep off outside local dev
 
 /**
  * Initialise all form subsystems within `scope` (default: full document).
- *
- * **Re-init rule:** call this again when DOM is injected later (e.g. Finsweet
- * `fs-inject`). Each sub-module guards with a one-time flag (`readyRoots`,
- * `data-form-address-initialised`, `WeakSet` per gold form, etc.) so repeat
- * calls are safe and idempotent on already-booted nodes.
+ * Safe to call again after DOM is injected later (e.g. Finsweet fs-inject):
+ * each sub-module guards with a one-time flag (readyRoots,
+ * data-form-address-initialised, per-form WeakSet, etc.).
  */
 export function initForms(scope = document) {
   getFormScopes(scope).forEach((domScope) => {

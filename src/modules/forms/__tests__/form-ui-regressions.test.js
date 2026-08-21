@@ -1051,9 +1051,10 @@ describe('form UI regressions', () => {
     window.history.replaceState({}, '', '/thank-you/get-a-quote?form=get-a-quote&Reference=JONES-123')
     formSuccessPage.hydrateOutputs(document)
 
-    // PII minimisation (THANK-YOU-OUTPUTS.md): reference hydrates; email,
-    // requested_amount and contact_method are no longer persisted, so their
-    // rows stay empty/hidden even when a page fabricates output hooks for them.
+    // PII minimisation (documented in the developer docs of the private
+    // companion repo): reference hydrates; email, requested_amount and
+    // contact_method are no longer persisted, so their rows stay empty/hidden
+    // even when a page fabricates output hooks for them.
     expect(document.querySelector('[data-form-success-output="reference"]').textContent).toBe('JONES-123')
     expect(document.querySelector('[data-form-success-output="email"]').textContent).toBe('')
     expect(document.querySelector('[data-form-success-field="email"]').hidden).toBe(true)
@@ -1095,8 +1096,6 @@ describe('form UI regressions', () => {
     window.history.replaceState({}, '', '/thank-you/appointment?form=appointment&Reference=APPT-456')
     formSuccessPage.hydrateOutputs(document)
 
-    // PII minimisation: only reference hydrates; email/appointment/contact rows
-    // are no longer persisted to the snapshot and stay hidden.
     expect(document.querySelector('[data-form-success-output="reference"]').textContent).toBe('APPT-456')
     expect(document.querySelector('[data-form-success-field="email"]').hidden).toBe(true)
     expect(document.querySelector('[data-form-success-field="appointment_location"]').hidden).toBe(true)
@@ -1129,7 +1128,6 @@ describe('form UI regressions', () => {
     window.history.replaceState({}, '', '/thank-you/gold?form=gold&Reference=GOLD-789')
     formSuccessPage.hydrateOutputs(document)
 
-    // PII minimisation: reference hydrates; email/contact_method are dropped.
     expect(document.querySelector('[data-form-success-output="reference"]').textContent).toBe('GOLD-789')
     expect(document.querySelector('[data-form-success-field="email"]').hidden).toBe(true)
     expect(document.querySelector('[data-form-success-field="contact_method"]').hidden).toBe(true)
@@ -1160,8 +1158,6 @@ describe('form UI regressions', () => {
     window.history.replaceState({}, '', '/thank-you/courier?form=courier&Reference=COUR-234')
     formSuccessPage.hydrateOutputs(document)
 
-    // PII minimisation: reference hydrates; email/courier_option/contact_method
-    // are no longer persisted to the snapshot and stay hidden.
     expect(document.querySelector('[data-form-success-output="reference"]').textContent).toBe('COUR-234')
     expect(document.querySelector('[data-form-success-field="email"]').hidden).toBe(true)
     expect(document.querySelector('[data-form-success-field="courier_option"]').hidden).toBe(true)

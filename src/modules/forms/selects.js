@@ -1,7 +1,7 @@
 /**
  * Custom select dropdown builder.
  *
- * Usage:
+ * Markup:
  *   <div data-form-select>
  *     <button data-form-select-trigger type="button">
  *       <span data-form-select-value>Choose</span>
@@ -11,10 +11,7 @@
  *     <select data-form-select-native name="field"></select>
  *   </div>
  *
- *   // Preferred: just call initForms() from the forms barrel.
- *   // initSelects is called automatically inside initForms().
- *   import { initForms } from "./modules/forms/index.js";
- *   initForms();
+ * initSelects() runs automatically inside initForms() (./modules/forms/index.js).
  */
 
 import { isVisible } from "../../utils/dom.js";
@@ -32,16 +29,16 @@ const selectors = {
 
 let isGlobalListenerRegistered = false;
 
-// Use WeakSet instead of polluting elements with __selectBuilt
+// WeakSet avoids tagging elements with __selectBuilt.
 const initializedSelects = new WeakSet();
 
-// Track all active select elements for closeAllSelects performance
+// All active selects, tracked for closeAllSelects performance.
 const activeSelectElements = new Set();
 
-// Track per-select MutationObservers so we can disconnect on destroy
+// Per-select MutationObservers, so destroy can disconnect them.
 const selectObservers = new WeakMap();
 
-// Track per-select listener bindings so destroy can remove every listener it added
+// Per-select listener bindings, so destroy can remove every listener it added.
 const selectListeners = new WeakMap();
 
 function getSelectElements(selectEl) {
@@ -80,9 +77,8 @@ function resetNativeSelect(nativeSelect, shouldUseDefault = false) {
   if (!nativeSelect.options.length) return;
 
   if (shouldUseDefault) {
-    // Pick the first real (non-placeholder) option. The placeholder is the
-    // empty-value disabled option synthesized in init; selecting by value
-    // rather than a hardcoded index stays correct even without one.
+    // First real (non-placeholder) option; placeholder is the empty-value
+    // disabled option synthesized in init.
     const firstReal = Array.from(nativeSelect.options).find((opt) => opt.value !== "");
     if (firstReal) {
       nativeSelect.value = firstReal.value;
@@ -123,16 +119,18 @@ function syncCustomUI(selectEl) {
   const matchedOption = options.find((opt) => opt.dataset.formSelectOption === value);
 
   if (matchedOption) {
-    // User selected something or URL param matched
+    // Customer selected an option, or a URL param matched a value.
     valueEl.textContent = matchedOption.textContent.trim();
     options.forEach((opt) => setSelected(opt, opt === matchedOption));
     formDom.setState(selectEl, "placeholder", false);
     syncIcon(selectEl, matchedOption);
   } else if (!value) {
-    // No value set - check if we have a default or should show placeholder
+    // No value set: fall back to a default, or show the placeholder.
+    // data-form-select-default (presence-only attribute) preselects the
+    // first real option instead of the placeholder — the deliberate
+    // exception to "blank start = unanswered for required validation".
     const hasDefault = selectEl.hasAttribute("data-form-select-default");
     if (hasDefault) {
-      // Auto-select first custom option
       const firstOption = options[0];
       if (firstOption) {
         nativeSelect.value = firstOption.dataset.formSelectOption;
@@ -142,14 +140,13 @@ function syncCustomUI(selectEl) {
         syncIcon(selectEl, firstOption);
       }
     } else {
-      // Show placeholder text from native placeholder option
       valueEl.textContent = nativeSelect.options[0]?.textContent || "Select option";
       options.forEach((opt) => setSelected(opt, false));
       formDom.setState(selectEl, "placeholder", true);
       syncIcon(selectEl, null);
     }
   } else {
-    // Value set but no match (invalid) - treat as placeholder
+    // Value set but no match: invalid, so treat as placeholder.
     valueEl.textContent = nativeSelect.options[0]?.textContent || "Select option";
     options.forEach((opt) => setSelected(opt, false));
     formDom.setState(selectEl, "placeholder", true);
@@ -191,18 +188,15 @@ export function initSelects(scope = document) {
 
     activeSelectElements.add(selectEl);
 
-    // Set accessibility attributes
     trigger.setAttribute("type", "button");
     trigger.setAttribute("aria-haspopup", "listbox");
     trigger.setAttribute("aria-expanded", "false");
 
-    // Parent wrapper of options gets role="listbox"
     const optionsParent = options[0].parentElement;
     if (optionsParent) {
       optionsParent.setAttribute("role", "listbox");
     }
 
-    // Populate native select from custom options
     nativeSelect.innerHTML = "";
 
     const placeholderText = valueEl.textContent.trim() || "Select option";
@@ -218,9 +212,8 @@ export function initSelects(scope = document) {
     options.forEach((option) => {
       const label = option.textContent.trim();
       const value = option.dataset.formSelectOption || label.toLowerCase().replace(/\s+/g, "-");
-      // Persist the resolved value back onto the custom option so the click
-      // handler (and syncCustomUI matching) uses the same value init wrote to
-      // the native option, even when the source markup omitted the attribute.
+      // Persists the resolved value so click handling and syncCustomUI match
+      // even when the source markup omitted the attribute.
       option.dataset.formSelectOption = value;
       option.setAttribute("role", "option");
       option.setAttribute("tabindex", "-1");
@@ -239,26 +232,26 @@ export function initSelects(scope = document) {
       resetNativeSelect(nativeSelect, selectEl.hasAttribute("data-form-select-default"));
     }
 
-    // Sync UI initially
     syncCustomUI(selectEl);
     syncDisabledState(selectEl, nativeSelect, trigger);
 
-    // Watch for programmatic changes on native select (value + disabled from form conditions)
+    // Re-syncs on programmatic changes to the native select — value and disabled state driven by form conditions.
     const onNativeChange = () => {
       syncCustomUI(selectEl);
       syncDisabledState(selectEl, nativeSelect, trigger);
     };
     nativeSelect.addEventListener("change", onNativeChange);
 
-    // React to disabled attribute changes driven by the form engine (condition-hidden, etc.)
+    // Re-syncs disabled state changes driven by the form engine (condition-hidden, etc.).
     const mo = new MutationObserver(() => {
       syncDisabledState(selectEl, nativeSelect, trigger);
     });
     mo.observe(nativeSelect, { attributes: true, attributeFilter: ["disabled"] });
     selectObservers.set(selectEl, mo);
 
-    // Watch for form reset
     const parentForm = nativeSelect.closest("form");
+    // "reset" fires before the browser restores values; defer to the next
+    // tick so nativeSelect reads the post-reset value.
     const onFormReset = () => {
       setTimeout(() => {
         resetNativeSelect(nativeSelect, selectEl.hasAttribute("data-form-select-default"));
@@ -270,7 +263,6 @@ export function initSelects(scope = document) {
       parentForm.addEventListener("reset", onFormReset);
     }
 
-    // Trigger click handler
     const onTriggerClick = (event) => {
       event.preventDefault();
       event.stopPropagation();
@@ -284,7 +276,6 @@ export function initSelects(scope = document) {
     };
     trigger.addEventListener("click", onTriggerClick);
 
-    // Event delegation on selectEl container for option clicks
     const onSelectClick = (event) => {
       const clickedTrigger = event.target.closest(selectors.trigger);
       if (!clickedTrigger && !event.target.closest(selectors.option) && !event.target.closest(selectors.native)) {
@@ -311,7 +302,6 @@ export function initSelects(scope = document) {
     };
     selectEl.addEventListener("click", onSelectClick);
 
-    // Keyboard navigation
     const onSelectKeydown = (event) => {
       if (!isVisible(selectEl) || nativeSelect.disabled) return;
 
@@ -369,7 +359,7 @@ export function initSelects(scope = document) {
     };
     selectEl.addEventListener("keydown", onSelectKeydown);
 
-    // Record bindings so destroySelects can remove every listener it added
+    // Records bindings, so destroySelects can remove every listener it added.
     selectListeners.set(selectEl, {
       nativeSelect,
       trigger,
@@ -382,7 +372,7 @@ export function initSelects(scope = document) {
     });
   });
 
-  // Global click outside to close handler (only added once globally)
+  // Click-outside handler, added once globally.
   if (!isGlobalListenerRegistered) {
     isGlobalListenerRegistered = true;
     document.addEventListener("click", (event) => {
@@ -395,12 +385,8 @@ export function initSelects(scope = document) {
 }
 
 /**
- * Destroy custom selects inside the given scope.
- * - Disconnects MutationObservers
- * - Removes from initialized set (allows re-initialization if elements are re-added)
- * - Clears visual states
- *
- * Note: Does not remove the global outside-click listener (shared + harmless).
+ * Destroy custom selects inside scope. Leaves the shared global outside-click
+ * listener in place — harmless without an active select.
  */
 export function destroySelects(scope = document) {
   const selects = [

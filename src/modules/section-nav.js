@@ -199,6 +199,10 @@ export function initSectionNav() {
 
 	window.addEventListener("hashchange", onHashChange);
 
+	// The -50% margins collapse the observer's root to the viewport midline, so
+	// this fires only when a section boundary crosses centre. entries is not read
+	// — syncActiveLink re-measures directly, which is cheaper than a scroll
+	// listener for the same result.
 	const observer =
 		typeof IntersectionObserver === "undefined"
 			? null

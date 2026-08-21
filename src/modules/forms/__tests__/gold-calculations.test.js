@@ -353,7 +353,6 @@ describe('gold calculator financials', () => {
     // Per-item money values are now whole £ (one precision): 253.5 → 254.
     expect(form.querySelector('[name="gold_item_2_purchase_value"]').value).toBe('254')
     expect(form.querySelector('[name="gold_item_2_loan_value"]').value).toBe('216')
-    // Amount (unsure → higher of the two) matches the whole purchase value.
     expect(form.querySelector('[name="gold_item_2_amount"]').value).toBe('254')
     expect(form.querySelector('[name="gold_item_2_asset_type"]').value).toBe('Gold')
 
@@ -471,15 +470,12 @@ describe('gold calculator financials', () => {
     persistSummary(form, summary)
     const submitted = Object.fromEntries(new FormData(form).entries())
 
-    // Amount fields carry no decimals.
     for (const field of ['gold_purchase_total', 'gold_loan_total', 'gold_indicative_value', 'gold_total', 'gold_monthly_interest']) {
       expect(submitted[field], field).toMatch(/^\d+$/)
       expect(submitted[field], field).toBe(String(Math.round(Number(submitted[field]))))
     }
-    // Each emitted amount equals its summary value rounded to whole £.
     expect(submitted.gold_loan_total).toBe(String(Math.round(summary.loanTotal)))
     expect(submitted.gold_monthly_interest).toBe(String(Math.round(summary.monthlyInterest)))
-    // Interest rate is always one decimal place.
     expect(submitted.gold_interest_rate).toMatch(/^\d+\.\d$/)
     expect(submitted.gold_interest_rate).toBe(Number(summary.loanInterestRate).toFixed(1))
   })
@@ -500,7 +496,7 @@ describe('gold calculator financials', () => {
 
     const itemAmounts = [1, 2, 3].map((i) => Number(submitted[`gold_item_${i}_amount`]))
     const sumOfItems = itemAmounts.reduce((a, b) => a + b, 0)
-    // The five per-item amounts foot exactly to the total — no ±£1 drift.
+    // The three per-item amounts foot exactly to the total — no ±£1 drift.
     expect(sumOfItems).toBe(Number(submitted.gold_total))
     expect(Number(submitted.gold_total)).toBe(Number(submitted.gold_loan_total))
     itemAmounts.forEach((v) => expect(String(v)).toMatch(/^\d+$/))
@@ -517,11 +513,9 @@ describe('gold calculator financials', () => {
     const s = Object.fromEntries(new FormData(form).entries())
     const n = (k) => Number(s[k])
 
-    // Every interest/repayment field is a whole number.
     for (const f of ['gold_monthly_interest', 'gold_total_interest', 'gold_repayment_amount', 'gold_loan_total']) {
       expect(s[f], f).toMatch(/^\d+$/)
     }
-    // And they tie out exactly.
     expect(n('gold_monthly_interest') * summary.loanTermMonths).toBe(n('gold_total_interest'))
     expect(n('gold_loan_total') + n('gold_total_interest')).toBe(n('gold_repayment_amount'))
   })
@@ -974,7 +968,6 @@ describe('emission — every amount whole and footing (mixed item types)', () =>
     expect(s.gold_item_2_asset_type).toBe('Gold')
     expect(s.gold_item_3_asset_type).toBe('')
     expect(s.gold_item_3_amount).toBe('')
-    // Item type is emitted in Zoho picklist case.
     expect(s.gold_item_1_type).toBe('Coin')
     expect(s.gold_item_2_type).toBe('Bar')
     // No duplicate quantity field.
@@ -1048,7 +1041,7 @@ describe('consistency hardening — traceability & one-precision', () => {
 
     for (const kind of ['spot_value', 'purchase_value', 'loan_value', 'amount']) {
       for (let i = 1; i <= 3; i += 1) {
-        expect(s[`gold_item_${i}_${kind}`], `${kind} ${i}`).toMatch(/^\d+$/) // whole
+        expect(s[`gold_item_${i}_${kind}`], `${kind} ${i}`).toMatch(/^\d+$/)
       }
     }
     expect(sum('purchase_value')).toBe(Number(s.gold_purchase_total))
@@ -1148,7 +1141,6 @@ describe('gold group discounts', () => {
     ])
     const eagle = calculateEstimate({ itemType: 'coin', bullionName: 'eagle_1oz', quantity: '1' }, findPricingRow(rows, { itemType: 'coin', bullionName: 'eagle_1oz' }), SPOT)
     const sov = calculateEstimate({ itemType: 'coin', bullionName: 'sovereign', quantity: '1' }, findPricingRow(rows, { itemType: 'coin', bullionName: 'sovereign' }), SPOT)
-    // Eagle discounted, Sovereign at full rate.
     expect(eagle.purchaseValue).toBe(81)
     expect(sov.purchaseValue).toBe(86)
     const summary = calculateGoldSummary([eagle, sov], 'sell', { ...quote, spotGbpPerGram: SPOT })

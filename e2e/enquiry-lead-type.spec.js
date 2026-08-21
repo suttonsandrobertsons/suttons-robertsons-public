@@ -2,12 +2,7 @@ import { test, expect } from "@playwright/test";
 import { installSubmitCapture, fillAndSubmit, LEAD_FORMS } from "./helpers/forms.js";
 
 // New_Lead_Type is derived at submit time from enquiry_type plus the two
-// sell-only follow-ups (derived-fields.js). It used to be four same-named hidden
-// inputs, which the single-submit dedup meant could only ever send ONE value —
-// so it could not express these combinations at all.
-//
-// These specs prove the derived value against real published markup. Nothing is
-// ever sent: installSubmitCapture answers the Webflow endpoint itself.
+// sell-only follow-ups (derived-fields.js).
 //
 // The combination matrix is driven through `courier` because it is the shortest
 // flow (2 steps, no uploads). get-a-quote deliberately runs only one case — its
@@ -109,7 +104,6 @@ test.describe("New_Lead_Type derivation (live, nothing submitted)", () => {
     expect(capture.one(capture.fields(), "New_Lead_Type")).toBe("Loan Customer");
   });
 
-  // Spot-checks: the same derived logic on the other lead forms.
   test("appointment derives the same value", async ({ page }) => {
     const capture = await installSubmitCapture(page);
     await page.goto("/find-us/make-an-appointment");
@@ -163,7 +157,6 @@ test.describe("New_Lead_Type derivation (live, nothing submitted)", () => {
           .map((n) => form.querySelectorAll(`[name="${n}"]`).length),
       };
     });
-    // The four hidden inputs are gone — the value is derived at submit instead.
     expect(state.hiddenLeadTypeInputs).toBe(0);
     expect(state.followUps).toEqual([2, 2]);
   });

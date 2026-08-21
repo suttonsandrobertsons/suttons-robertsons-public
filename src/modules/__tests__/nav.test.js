@@ -96,6 +96,9 @@ describe("initNav", () => {
 		expect(document.querySelectorAll(".nav_mega-col[data-nav-panel-level='1'] .nav_mega-list:not([data-nav-list='primary']) .nav_mega-item[data-nav-generated]")).toHaveLength(0);
 	});
 
+	// Gold items with no direct image match fall back to whichever general
+	// item has targetPanelId="gold", even though that item is a different
+	// general-type (asset-sell here) — see getReferencedGoldImage in nav.js.
 	it("combines general items from multiple list instances and resolves gold imagery from the general data set", async () => {
 		Object.defineProperty(document, "readyState", {
 			configurable: true,

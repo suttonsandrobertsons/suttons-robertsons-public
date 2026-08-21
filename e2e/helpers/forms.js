@@ -147,7 +147,6 @@ export async function fillAndSubmit(page, formKey, answers = {}, opts = {}) {
   return result;
 }
 
-/** Check a radio by its exact value within a form. */
 export async function pickRadio(page, formKey, name, value) {
   return page.evaluate(({ formKey, name, value }) => {
     const form = document.querySelector(`[data-form="${formKey}"]`);
@@ -159,7 +158,6 @@ export async function pickRadio(page, formKey, name, value) {
   }, { formKey, name, value });
 }
 
-/** Read a field's state: option values, what's checked, and visibility. */
 export async function fieldState(page, formKey, name) {
   return page.evaluate(({ formKey, name }) => {
     const form = document.querySelector(`[data-form="${formKey}"]`);

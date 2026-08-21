@@ -1,16 +1,11 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { formConditions, formValues, formDom } from '../core.js'
 
-// ---------------------------------------------------------------------------
-// Helper: build a minimal gold-form-like DOM with per-item radio groups
-// and conditional elements that reference indexed field names.
-// ---------------------------------------------------------------------------
 
 function buildForm() {
   const form = document.createElement('form')
   form.setAttribute('data-form', 'gold')
 
-  // Form-level enquiry_type radio group
   form.innerHTML = `
     <div data-form-field="enquiry_type">
       <input type="radio" name="enquiry_type" value="loan" checked>
@@ -84,7 +79,6 @@ describe('per-item condition independence', () => {
   it('initial state: item 1 jewellery fields visible, item 2 coin fields visible', () => {
     formConditions.render(form)
 
-    // Item 1: jewellery selected → carat visible, coin/bar hidden
     const item1Carat = form.querySelector('[name="metal_type_1"]').closest('[data-form-show-if]')
     const item1Coin = form.querySelector('[name="coin_type_1"]').closest('[data-form-show-if]')
     const item1Bar = form.querySelector('[name="bar_type_1"]').closest('[data-form-show-if]')
@@ -93,7 +87,6 @@ describe('per-item condition independence', () => {
     expect(isVisible(item1Coin)).toBe(false)
     expect(isVisible(item1Bar)).toBe(false)
 
-    // Item 2: coin selected → coin visible, jewellery/bar hidden
     const item2Carat = form.querySelector('[name="metal_type_2"]').closest('[data-form-show-if]')
     const item2Coin = form.querySelector('[name="coin_type_2"]').closest('[data-form-show-if]')
     const item2Bar = form.querySelector('[name="bar_type_2"]').closest('[data-form-show-if]')
@@ -106,14 +99,12 @@ describe('per-item condition independence', () => {
   it('changing item 1 type does not affect item 2 visibility', () => {
     formConditions.render(form)
 
-    // Switch item 1 from jewellery to bar
     const item1BarRadio = form.querySelector('[name="gold_item_type_1"][value="bar"]')
     item1BarRadio.checked = true
     form.querySelector('[name="gold_item_type_1"][value="jewellery"]').checked = false
 
     formConditions.render(form)
 
-    // Item 1: bar selected → bar visible, jewellery/coin hidden
     const item1Carat = form.querySelector('[name="metal_type_1"]').closest('[data-form-show-if]')
     const item1Coin = form.querySelector('[name="coin_type_1"]').closest('[data-form-show-if]')
     const item1Bar = form.querySelector('[name="bar_type_1"]').closest('[data-form-show-if]')
@@ -122,7 +113,6 @@ describe('per-item condition independence', () => {
     expect(isVisible(item1Coin)).toBe(false)
     expect(isVisible(item1Bar)).toBe(true)
 
-    // Item 2: still coin → unchanged
     const item2Carat = form.querySelector('[name="metal_type_2"]').closest('[data-form-show-if]')
     const item2Coin = form.querySelector('[name="coin_type_2"]').closest('[data-form-show-if]')
     const item2Bar = form.querySelector('[name="bar_type_2"]').closest('[data-form-show-if]')
@@ -135,14 +125,12 @@ describe('per-item condition independence', () => {
   it('changing item 2 type does not affect item 1 visibility', () => {
     formConditions.render(form)
 
-    // Switch item 2 from coin to jewellery
     const item2JewelleryRadio = form.querySelector('[name="gold_item_type_2"][value="jewellery"]')
     item2JewelleryRadio.checked = true
     form.querySelector('[name="gold_item_type_2"][value="coin"]').checked = false
 
     formConditions.render(form)
 
-    // Item 1: still jewellery → unchanged
     const item1Carat = form.querySelector('[name="metal_type_1"]').closest('[data-form-show-if]')
     const item1Coin = form.querySelector('[name="coin_type_1"]').closest('[data-form-show-if]')
     const item1Bar = form.querySelector('[name="bar_type_1"]').closest('[data-form-show-if]')
@@ -151,7 +139,6 @@ describe('per-item condition independence', () => {
     expect(isVisible(item1Coin)).toBe(false)
     expect(isVisible(item1Bar)).toBe(false)
 
-    // Item 2: jewellery → carat visible, coin/bar hidden
     const item2Carat = form.querySelector('[name="metal_type_2"]').closest('[data-form-show-if]')
     const item2Coin = form.querySelector('[name="coin_type_2"]').closest('[data-form-show-if]')
     const item2Bar = form.querySelector('[name="bar_type_2"]').closest('[data-form-show-if]')
@@ -164,7 +151,6 @@ describe('per-item condition independence', () => {
   it('both items can have the same type selected independently', () => {
     formConditions.render(form)
 
-    // Set both to jewellery
     form.querySelector('[name="gold_item_type_1"][value="jewellery"]').checked = true
     form.querySelector('[name="gold_item_type_1"][value="coin"]').checked = false
 
@@ -173,7 +159,6 @@ describe('per-item condition independence', () => {
 
     formConditions.render(form)
 
-    // Both items: jewellery → carat visible, coin/bar hidden
     const item1Carat = form.querySelector('[name="metal_type_1"]').closest('[data-form-show-if]')
     const item1Coin = form.querySelector('[name="coin_type_1"]').closest('[data-form-show-if]')
     const item2Carat = form.querySelector('[name="metal_type_2"]').closest('[data-form-show-if]')
@@ -340,21 +325,18 @@ describe('per-item conditions after simulated clone + re-index', () => {
 
     formConditions.render(form)
 
-    // Item 1: jewellery → weight visible, coin_select hidden
     const item1Weight = form.querySelector('[name="weight_1"]').closest('[data-form-show-if]')
     const item1Coin = form.querySelector('[name="coin_1"]').closest('[data-form-show-if]')
 
     expect(isVisible(item1Weight)).toBe(true)
     expect(isVisible(item1Coin)).toBe(false)
 
-    // Item 2: coin → weight hidden, coin_select visible
     const item2Weight = form.querySelector('[name="weight_2"]').closest('[data-form-show-if]')
     const item2Coin = form.querySelector('[name="coin_2"]').closest('[data-form-show-if]')
 
     expect(isVisible(item2Weight)).toBe(false)
     expect(isVisible(item2Coin)).toBe(true)
 
-    // Now switch item 1 to coin — should not affect item 2
     form.querySelector('[name="gold_item_type_1"][value="coin"]').checked = true
     form.querySelector('[name="gold_item_type_1"][value="jewellery"]').checked = false
 
@@ -382,13 +364,13 @@ describe('hide-if conditions with OR values', () => {
 
     formConditions.render(form)
     const el = form.querySelector('[data-form-hide-if]')
-    expect(isVisible(el)).toBe(true) // active ≠ inactive/suspended → visible
+    expect(isVisible(el)).toBe(true)
 
     form.querySelector('[name="status"][value="inactive"]').checked = true
     form.querySelector('[name="status"][value="active"]').checked = false
 
     formConditions.render(form)
-    expect(isVisible(el)).toBe(false) // inactive matches → hidden
+    expect(isVisible(el)).toBe(false)
   })
 })
 

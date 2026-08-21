@@ -6,7 +6,7 @@ import { formConditions, formSteps, formAttribution, formSuccessPage, formParams
 import { formEvents } from './events.js';
 
 // ============================================================================
-// 12. CENTRAL ORCHESTRATOR APP
+// CENTRAL ORCHESTRATOR APP
 // ============================================================================
 export const formApp = {
   readyRoots: new WeakSet(),
@@ -38,9 +38,10 @@ export const formApp = {
     this.pruneDisconnected();
     formSuccessPage.scrollToTopIfNeeded();
     formSuccessPage.hydrateOutputs(scope);
-    // Fire the form_submission dataLayer push from the TY page (native lead-form
-    // POSTs race page-unload, so the pre-handoff push doesn't survive). Runs
-    // AFTER hydrateOutputs so the snapshot is still present; it clears it once pushed.
+    // form_submission push runs from the TY page, not pre-handoff: a native
+    // lead-form POST races page-unload and the pre-handoff push can be lost.
+    // Must run after hydrateOutputs, while the snapshot still exists; it clears
+    // the snapshot once pushed.
     formSuccessPage.trackSuccess(scope);
     formAttribution.capture();
 
@@ -157,12 +158,9 @@ export const formApp = {
 
     if (form.steps.length) {
       formSteps.render(form);
-      // Second conditions pass: formSteps.render() just changed step-hidden state.
-      // A condition on a now-visible step may depend on a field on a different step
-      // whose value was masked on the first pass (field was on a step-hidden element).
-      // Re-evaluating ensures conditions reflect the current step visibility context.
-      // Defensive — field values are read from DOM regardless of step-hidden status,
-      // but the step-visibility boundary makes the second pass the safe default.
+      // Second pass, after formSteps.render() changes step-hidden state: a
+      // condition on a now-visible step can depend on a field whose value was
+      // masked on the first pass by its own step being step-hidden.
       formConditions.render(form);
     }
 
@@ -183,7 +181,7 @@ import { setFormApp } from './lazy-app.js';
 setFormApp(formApp);
 
 // ============================================================================
-// 13. DOCUMENT-LEVEL ATTRIBUTION FALLBACK
+// DOCUMENT-LEVEL ATTRIBUTION FALLBACK
 // ============================================================================
 // Keep Webflow's own form serialization honest: condition-hidden controls
 // must be disabled before any submit listener reads the form.
@@ -200,8 +198,7 @@ setFormApp(formApp);
   }, true);
 })();
 
-// Ensures every form submission includes attribution fields, even forms that
-// lack data-form and were never initialised by formApp.boot().
+// Covers forms that lack data-form and were never initialised by formApp.boot().
 (function initAttributionFallback() {
   if (typeof document === 'undefined') return;
 
@@ -209,12 +206,11 @@ setFormApp(formApp);
     const form = event.target;
     if (!(form instanceof HTMLFormElement)) return;
 
-    // Only enrich Webflow lead forms (wrapped in .w-form). Arbitrary forms —
-    // search boxes, newsletter widgets, third-party embeds — must not receive
-    // tracking hidden inputs.
+    // Excludes non-lead forms — search boxes, newsletter widgets, third-party
+    // embeds — from receiving tracking hidden inputs.
     if (!form.closest('.w-form')) return;
 
-    // If the core module already wrote attribution, skip
+    // Skip if the core module already wrote attribution.
     if (form.querySelector('[name="unique_id"]')) return;
 
     // Refresh attribution storage on each submit so UTM/landing data stays current.

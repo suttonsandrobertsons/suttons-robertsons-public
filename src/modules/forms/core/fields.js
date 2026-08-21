@@ -112,7 +112,7 @@ export const formValues = {
 };
 
 // ============================================================================
-// 3. FILE UPLOADS SYSTEM
+// FILE UPLOADS SYSTEM
 // ============================================================================
 export const formUploads = {
   tempInputs: new WeakMap(),
@@ -308,8 +308,8 @@ export const formUploads = {
 
   async uploadToWorker(form, upload, valueField, workerBase, file, token) {
     // The token this call was launched with — a fresher selection bumps
-    // uploadTokens, so on completion we compare against the current value to
-    // decide whether this result is still the one the user is waiting for.
+    // uploadTokens, so completion compares against the current value to
+    // decide whether this result is still the one the customer is waiting for.
     const isStale = () => token !== undefined && this.uploadTokens.get(upload) !== token;
 
     // A lightweight controller object (not a fetch AbortController): postFile
@@ -320,8 +320,8 @@ export const formUploads = {
 
     // Live upload progress: fetch has no upload-progress events, so a large file
     // (e.g. a 20MB video) would sit on a static "Uploading…" for many seconds and
-    // look frozen. With XHR we update the loading label with a percentage as the
-    // bytes go out. Guard on isStale so a superseded upload never touches the UI.
+    // look frozen. XHR updates the loading label with a percentage as the bytes
+    // go out. Guard on isStale so a superseded upload never touches the UI.
     const onProgress = (event) => {
       if (isStale()) return;
       if (event && event.lengthComputable && event.total > 0) {
@@ -338,7 +338,7 @@ export const formUploads = {
         formId: this.getFormId(form.root),
         fieldName: this.getFieldName(upload),
         // Stable reference, generated once and reused for the hidden fields and
-        // redirects at submit. The worker folders uploads under this so the
+        // redirects at submit. The Worker folders uploads under this so the
         // Cloudflare storage path matches the Zoho record's reference.
         reference: formAttribution.ensureReference(form),
       }, controller, onProgress);
@@ -369,7 +369,7 @@ export const formUploads = {
       this.routeUploadValue(upload, valueField, json.category, url);
       // Stash the signed folder link (same for every file in the enquiry) so
       // submit can emit it as one hidden field. The form can't build this
-      // itself — it's HMAC-signed server-side — so we take it from the response.
+      // itself — it's HMAC-signed by the Worker — so it comes from the response.
       if (json.folderUrl) {
         form.submissionMeta = form.submissionMeta || {};
         form.submissionMeta.folderUrl = json.folderUrl;
@@ -395,8 +395,8 @@ export const formUploads = {
     }
   },
 
-  // Translate worker/network error codes into a message we can show a customer.
-  // The worker intentionally returns terse codes (good for logs/API); the UI
+  // Translate Worker/network error codes into a message fit to show a customer.
+  // The Worker intentionally returns terse codes (good for logs/API); the UI
   // must never surface those raw (e.g. "conversion_failed").
   friendlyUploadError(code) {
     const maxMb = Math.round((Number(formConfig.uploads.maxBytes) || 0) / (1024 * 1024)) || 20;
@@ -428,11 +428,10 @@ export const formUploads = {
 
     const url = workerBase.replace(/\/$/, '') + formConfig.uploads.workerUploadPath;
 
-    // XMLHttpRequest (not fetch) so we can wire xhr.upload.onprogress and show a
-    // live percentage while bytes go out. Everything the old fetch path
-    // guaranteed is preserved: supersede via controller.abort → xhr.abort, a 60s
-    // cap via xhr.timeout, a hard throw on an unparseable 2xx body, and the same
-    // worker error-code surfacing.
+    // XMLHttpRequest, not fetch, so xhr.upload.onprogress can drive a live
+    // percentage while bytes go out: supersede via controller.abort → xhr.abort,
+    // a 60s cap via xhr.timeout, a hard throw on an unparseable 2xx body, and
+    // the same Worker error-code surfacing.
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
 
@@ -487,8 +486,8 @@ export const formUploads = {
           return;
         }
 
-        // A 2xx whose body could not be parsed as JSON is NOT a success — the URL
-        // we depend on is unknowable, so throw rather than return {} (which would
+        // A 2xx whose body could not be parsed as JSON is NOT a success — the
+        // required URL is unknowable, so throw rather than return {} (which would
         // otherwise be marked uploaded with an empty value).
         if (!parsed) {
           formLogger.error(null, 'Upload worker response could not be parsed.', { url, status });
@@ -561,7 +560,13 @@ export const formUploads = {
     formFields.setFilled(valueField);
   },
 
-  // Route an uploaded file's URL to the right hidden field by category. Images
+  // WHY TWO VALUE FIELDS: Zoho has TWO distinct upload fields with different
+  // format acceptance — Image Upload (jpg/png only, 10 MB cap) and File Upload
+  // (everything else, including video). Zapier maps each to its own Zoho field
+  // with no branching, which only works if the browser has already sorted the
+  // URL into the right box.
+  //
+  // Images
   // (incl. WebP/HEIC/HEIF converted to JPEG) go to the primary value field
   // (→ Zoho Image Upload); documents and videos go to the file value field
   // (→ Zoho File Upload). If a widget has no dedicated file target, everything
@@ -598,11 +603,10 @@ export const formUploads = {
       throw new Error('[data-form-upload] needs a [data-form-upload-value-image] (or [data-form-upload-value]) hidden field.');
     }
 
-    // A file is still uploading. Block submit/step-nav regardless of whether the
-    // field is required — the user DID attach a file, so we must not hand off
-    // (or advance) with an empty URL. Leave the loading state untouched so the
-    // in-flight request can still complete. Optional + no file = valid falls
-    // through below.
+    // A file is still uploading. Block submit/step-nav regardless of whether
+    // the field is required — the customer did attach a file, so hand-off (or
+    // advance) must not proceed with an empty URL. Leave the loading state
+    // untouched so the in-flight request can still complete.
     if (this.isLoading(upload)) {
       formLogger.warn(null, 'Upload validation blocked (still uploading).', { fieldName: this.getFieldName(upload) });
       const error = upload.querySelector(SELECTORS.error);
@@ -670,7 +674,7 @@ export const formUploads = {
 };
 
 // ============================================================================
-// 4. FIELD VALIDATION & CONFIGURATION
+// FIELD VALIDATION & CONFIGURATION
 // ============================================================================
 export const formFields = {
   configure(form) {
@@ -809,8 +813,8 @@ export const formFields = {
 
     // On blur/change, keep money fields formatted for display (with thousands
     // separators). The comma is only stripped at submit time in
-    // normalizeBeforeSubmit, so the user keeps seeing "10,000" after clicking
-    // out while Zapier/Zoho still receive a plain "10000".
+    // normalizeBeforeSubmit, so the customer keeps seeing "10,000" after
+    // clicking out while Zapier/Zoho still receive a plain "10000".
     if (fieldType === 'money') {
       this.formatMoneyField(field);
     }
@@ -844,6 +848,12 @@ export const formFields = {
     formChoices.prepareFieldsForSubmit(form);
   },
 
+  // Some fields (e.g. New_Lead_Type, box_and_papers, bullion_name — see
+  // formConfig.submit.singleValueFieldNames) are authored as several controls
+  // that must collapse to one submitted name. Renaming the inactive controls
+  // with the disabled-name prefix, rather than disabling them, is deliberate:
+  // this runs on every render, and a disabled control can't be typed into —
+  // the customer would be locked out of switching which control is active.
   prepareSingleSubmitControls(form) {
     const root = form?.root;
     if (!root) return;
@@ -941,6 +951,11 @@ export const formFields = {
     return String(this.getPhoneCountryField(field)?.value || '').trim();
   },
 
+  // Phone is the one field authored as two controls under a single wrapper:
+  // the country-code select and the number input. The wrapper owns the type,
+  // validation and error state; the select is found by name from the form
+  // root so the two need not be siblings in the markup. buildPhoneValue joins
+  // them for submission; the reverse split happens on quote_url prefill.
   getPhoneCountryField(field) {
     const root = field.closest(SELECTORS.root) || field.form || document;
     return root.querySelector(formDom.getNameSelector('phone_country_code'));
@@ -1364,9 +1379,24 @@ export const formFields = {
 };
 
 // ============================================================================
-// 5. CHOICE CARDS (RADIO/CHECKBOX)
-// 6. FIELD GROUPS
+// FIELD GROUPS
 // ============================================================================
+// Choice cards (radio/checkbox) are NOT here — they are in choices.js.
+//
+// A field group is the DECLARATIVE way to combine several fields into one
+// submitted value: wrap them in [data-form-field-group="<name>"] to create a
+// hidden input of that name holding the visible members' values, comma-joined.
+// No JavaScript knows what is being combined — `brands` is built this way, and
+// the same attribute would combine anything else.
+//
+// Use this when the answer is "whichever of these is filled in, joined". Use
+// derived-fields.js instead when the value needs a rule a join cannot express:
+// arithmetic, a conditional pick, or a mapping to differently-named outputs.
+//
+// The empty case differs from a derived field: an empty group DISABLES its
+// hidden input, so the field is absent from the POST entirely, whereas an
+// empty derived field submits blank. Zapier mappings must test presence here,
+// emptiness there.
 export const formFieldGroups = {
   render(form) {
     this.syncFields(form);

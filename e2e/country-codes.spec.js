@@ -1,7 +1,5 @@
 import { test, expect } from "@playwright/test";
 
-// Country field default + dropdown behaviour, and the extended 100-code list
-// with flags.
 const GOLD_CALC = "/dev/forms/gold-calculator";
 
 function optionsLocator(page) {
@@ -18,7 +16,7 @@ test.describe("phone country-code dropdown (CMS-driven)", () => {
     const options = optionsLocator(page);
 
     const count = await options.count();
-    expect(count).toBeGreaterThanOrEqual(100); // 100 curated codes live
+    expect(count).toBeGreaterThanOrEqual(100);
 
     const withFlag = await options
       .locator("img[data-form-select-option-icon]")

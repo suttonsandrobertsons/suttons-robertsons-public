@@ -424,12 +424,10 @@ describe('event lifecycle defects', () => {
     expect(form.hasTrackedSuccess).toBe(true)
     expect(form.isSubmitting).toBe(false)
 
-    // Reset via the button inside .w-form-done.
     done.querySelector('[data-form-action="reset"]').click()
     expect(form.hasTrackedSuccess).toBe(false)
     expect(form.isSubmitting).toBe(false)
 
-    // Second submit + success must be observed again.
     form.root.querySelector('input[name="email"]').value = 'second@example.com'
     form.root.querySelector('button[type="submit"]').click()
     expect(form.isSubmitting).toBe(true)

@@ -8,9 +8,7 @@ const SELECTORS = {
   thumb: ".form-loan_slider-thumb",
 };
 
-// Default loan amount shown before the user interacts with the slider.
-// (Previously this was derived from cfg.defaultDuration, which is a loan
-// duration in months, not an amount — the effective default was always 5000.)
+// Default loan amount shown before the customer interacts with the slider.
 const DEFAULT_AMOUNT = 5000;
 
 function init(sliderTrack) {
@@ -109,7 +107,6 @@ function init(sliderTrack) {
     document.removeEventListener("touchcancel", onEnd);
   }
 
-  // Mouse
   thumb.addEventListener("mousedown", (e) => { e.preventDefault(); onStart(e.clientX); });
   sliderTrack.addEventListener("mousedown", (e) => {
     if (e.target === thumb) return;
@@ -117,7 +114,6 @@ function init(sliderTrack) {
   });
   const onMouseMove = (e) => onMove(e.clientX);
 
-  // Touch
   thumb.addEventListener("touchstart", (e) => { e.preventDefault(); onStart(e.touches[0].clientX); });
   sliderTrack.addEventListener("touchstart", (e) => {
     if (e.target === thumb) return;
@@ -125,7 +121,7 @@ function init(sliderTrack) {
   });
   const onTouchMove = (e) => { e.preventDefault(); onMove(e.touches[0].clientX); };
 
-  // Sync from amount input if user types directly
+  // Syncs from the amount input when the customer types directly.
   amountEl.addEventListener("input", () => {
     if (dragging) return;
     const val = readAmount(amountEl, current);
@@ -135,7 +131,7 @@ function init(sliderTrack) {
     }
   });
 
-  // Expose setValue on thumb for programmatic access (DevTools, testing)
+  // Exposes setValue on the thumb for programmatic access (DevTools, testing).
   thumb._setSliderValue = setValue;
   thumb._getSliderValue = () => current;
 }

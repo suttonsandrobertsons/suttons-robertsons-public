@@ -48,7 +48,6 @@ test.describe("home-hero → get-a-quote handoff", () => {
     });
     expect(landed.enquiry).toEqual(["Sell My Items"]);
     expect(landed.asset).toEqual(["Watches"]);
-    // The prefilled value must drive the conditions, not just sit there.
     expect(landed.followUpsVisible, "a carried-over sell enquiry must reveal the follow-ups").toBe(true);
   });
 

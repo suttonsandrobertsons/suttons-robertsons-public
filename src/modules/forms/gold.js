@@ -63,20 +63,14 @@ function getItemFieldValue(itemElement, name) {
   const directValue = getFieldValue(itemElement, indexedName) || getFieldValue(itemElement, name);
   if (directValue) return directValue;
 
-  // Read the field's active branch from its wrappers. Prefer the control whose
-  // name carries this item's indexed prefix, but fall back to any readable
-  // control inside the field's wrappers.
+  // Prefer the control whose name carries this item's indexed prefix, else
+  // fall back to any readable control in the field's wrappers.
   //
-  // Why the fallback matters: the shared single-submit dedup
-  // (core/fields.js `prepareSingleSubmitControls`) collapses every control that
-  // shares a `singleValueFieldNames` base name — e.g. `bullion_name` — into one
-  // group and renames all but the chosen one to `_disabled_bullion_name`. On a
-  // multi-item gold form that clobbers item 2+'s bullion select, so its name no
-  // longer matches the `gold_bullion_name_N_` indexed prefix and the strict read
-  // returns "" (false "Choose the coin or bar." on submit, and empty
-  // gold_item_N_* fields). `shouldReadField` still isolates the single visible
-  // branch (condition-hidden branches are skipped), so reading it directly keeps
-  // validation and the persisted hidden fields correct regardless of that rename.
+  // The fallback works around prepareSingleSubmitControls (core/fields.js),
+  // which collapses controls sharing a singleValueFieldNames base name (e.g.
+  // bullion_name) and renames all but one to `_disabled_bullion_name`. On a
+  // multi-item form this breaks item 2+'s indexed name match, producing a
+  // false "Choose the coin or bar." error and empty gold_item_N_* fields.
   const readableControls = getFieldWrappers(itemElement, name)
     .flatMap((field) => Array.from(field.querySelectorAll("input, select, textarea")))
     .filter((control) => formValues.shouldReadField(control));
@@ -265,9 +259,7 @@ function findPricingRow(rows, item) {
 
 function isManualRow(row) {
   if (!row) return true;
-  // Purity source is type-locked (same rule as getPurityRatio): jewellery is
-  // defined by carats, bullion by percent. A stray value in the other field is
-  // ignored so a mistyped CMS field can't silently change the purity used.
+  // Purity is type-locked (see getPurityRatio): jewellery reads carats, bullion reads percent.
   const itemType = normalizeSlug(row.itemType);
   const purity = itemType === "jewellery" ? Number(row.purityCarats) : Number(row.purityPercent);
   if (!Number.isFinite(purity) || purity <= 0) return true;
@@ -279,9 +271,9 @@ function isManualRow(row) {
 }
 
 function getPurityRatio(row, item, itemType) {
-  // Type-locked source: jewellery purity comes from carats (the CMS row, or the
-  // entered carat as fallback); coin/bar purity comes from percent. The other
-  // field is ignored, so a mistyped CMS value can never override the real one.
+  // Type-locked: jewellery purity comes from carats (CMS row, falling back
+  // to the entered carat); coin/bar purity comes from percent. The other
+  // field is ignored.
   const type = itemType || normalizeSlug(item.itemType);
   if (type === "jewellery") {
     if (Number.isFinite(row.purityCarats) && row.purityCarats > 0) return row.purityCarats / 24;
@@ -306,27 +298,24 @@ function getQuantity(item) {
 }
 
 function getOfferRatio(key) {
-  // One convention: config holds whole percentages (88, 75) → divide by 100.
+  // Config stores whole percentages (88, 75); convert to a ratio here.
   const number = parseNumber(formConfig.gold[key === "purchase" ? "purchaseToValuePercent" : "loanToValuePercent"]);
   return Number.isFinite(number) && number > 0 ? number / 100 : NaN;
 }
 
-// Trim a fixed % off the live spot before the purchase/loan ratios
-// apply, to absorb spot-feed variance. Returns the multiplier (e.g. 0.98 for 2%).
-// Affects the purchase & loan OFFERS only — the displayed spot value uses the
-// raw spot. Falls back to 1 (no adjustment) for a missing/invalid config.
+// Spot discount multiplier (e.g. 0.98 for 2%), applied before the
+// purchase/loan ratios. Affects the purchase/loan OFFERS only — the
+// displayed spot value always uses the raw spot. Falls back to 1 if the
+// config is missing or invalid.
 function getSpotOfferMultiplier() {
   const percent = parseNumber(formConfig.gold.spotDiscountPercent);
   return Number.isFinite(percent) && percent > 0 && percent < 100 ? 1 - percent / 100 : 1;
 }
 
-// Certain coin groups (e.g. Swiss/French Francs, Gold American Eagles) are not
-// bought or loaned against at the default 88% purchase / 75% loan ratios. The
-// CMS pricing row can carry an `extraDiscountPercent`; when set, both the
-// purchase and loan offers for that row are trimmed by a FURTHER whole percent
-// ON TOP of the base ratio — i.e. multiplicatively: ratio × (1 - extra/100)
-// (6 → × 0.94). A blank/zero/out-of-range value means no adjustment (× 1).
-// The displayed spot value and spot discount are unaffected.
+// extraDiscountPercent (CMS row) trims this row's purchase/loan ratios by a
+// further whole percent, multiplicative on top of the base ratio: ratio ×
+// (1 - extra/100), e.g. 6 → ×0.94. Blank/zero/out-of-range = ×1. Never
+// affects the displayed spot value.
 function getRowOfferMultiplier(row) {
   const percent = parseNumber(row?.extraDiscountPercent);
   return Number.isFinite(percent) && percent > 0 && percent < 100 ? 1 - percent / 100 : 1;
@@ -339,8 +328,7 @@ function mround(value, multiple = 0.5) {
   return roundMoney(Math.round(number / step) * step);
 }
 
-// Whole-pound rounding for amount fields sent to Zoho (which take no decimals).
-// Non-finite input coerces to 0 so the emitted hidden field is a clean number.
+// Zoho amount fields take no decimals. Non-finite input becomes 0.
 function roundWholePound(value) {
   const number = Number(value);
   return Number.isFinite(number) ? Math.round(number) : 0;
@@ -388,9 +376,7 @@ function calculateLoanValue(itemType, weightGrams, purityRatio, quantity, spotGb
   };
 
   if (itemType === "jewellery") {
-    // Symmetric with purchase (see calculatePurchaseValue): quote a £/gram loan
-    // rate rounded to £0.50, then round the per-item value. Keeps the jewellery
-    // buy and loan paths rounding identically, matching the desk sheet.
+    // Jewellery: round £/gram to 50p first, then round the per-item value.
     const loanPerGram = mround(purityRatio * spotGbpPerGram * loanRatio, 0.5);
     const loanPerUnit = mround(weightGrams * loanPerGram, 0.5);
     return {
@@ -414,9 +400,7 @@ function calculateLoanValue(itemType, weightGrams, purityRatio, quantity, spotGb
 }
 
 function calculateEstimate(item, row, spotGbpPerGram) {
-  // isManualRow is the single manual gate — it already rejects a row with no
-  // usable purity (and, for bullion, no weight), so once we're past it the
-  // derived purityRatio is finite. No second manual check here.
+  // isManualRow already filters unusable purity/weight; purityRatio is finite here.
   if (isManualRow(row)) return createManualEstimate(item, row);
 
   const itemType = normalizeSlug(item.itemType);
@@ -424,14 +408,10 @@ function calculateEstimate(item, row, spotGbpPerGram) {
   const weightGrams = getWeightGrams(row, item, itemType);
   const quantity = getQuantity(item);
   const spotValue = weightGrams * purityRatio * quantity * spotGbpPerGram;
-  // Offers price off a spot trimmed by spotDiscountPercent; spotValue stays raw.
   const offerSpotGbpPerGram = spotGbpPerGram * getSpotOfferMultiplier();
-  // Group-specific trim (e.g. Francs, American Eagles): a further % off the
-  // purchase/loan ratios for this pricing row only. 1 when the row has none.
   const rowOfferAdjust = getRowOfferMultiplier(row);
-  // Effective ratios = base × any group trim. Reported in the calculation
-  // trace below so it reconciles with the per-gram/per-unit values; for a row
-  // with no group discount rowOfferAdjust is 1, so these stay 0.88 / 0.75.
+  // Recomputed here (not reused from calculatePurchaseValue/calculateLoanValue)
+  // so the trace below reports the effective ratio actually used.
   const purchaseRatio = getOfferRatio("purchase") * rowOfferAdjust;
   const loanRatio = getOfferRatio("loan") * rowOfferAdjust;
   const purchase = calculatePurchaseValue(itemType, weightGrams, purityRatio, quantity, offerSpotGbpPerGram, rowOfferAdjust);
@@ -643,10 +623,9 @@ function evaluate(instance, quote, validation) {
   const spotGbpPerGram = Number.isFinite(quote?.spotGbpPerGram) ? quote.spotGbpPerGram : 0;
   const enquiryType = normalizeSlug(getFieldValue(form, FIELD_NAMES.enquiryType));
   const estimates = [];
-  // Slot-aligned (unlike `estimates`, which compacts out invalid items): index i
-  // here is always physical item slot i+1, with `null` for slots not yet priced.
-  // persistItemSlotFields relies on this alignment to write the right gold_item_N_*
-  // hidden fields for the right slot.
+  // Slot-aligned (unlike `estimates`, which compacts out invalid items): index
+  // i is item slot i+1, null if unpriced. persistItemSlotFields depends on
+  // this alignment.
   const itemsBySlot = [];
 
   const itemResults = validation?.itemResults?.length
@@ -684,25 +663,21 @@ function evaluate(instance, quote, validation) {
 
 function calculateGoldSummary(estimates, enquiryType, quote, itemsBySlot = estimates) {
   const spotGbpPerGram = Number.isFinite(quote?.spotGbpPerGram) ? quote.spotGbpPerGram : 0;
-  // Offer spot = the discounted rate the purchase/loan offers are priced from,
-  // exposed so a lead's offer is reconstructable (raw spot alone can't explain it).
+  // Rate the purchase/loan offers are priced from; exposed because raw spot
+  // alone can't reconstruct the offer.
   const spotDiscountPercent = parseNumber(formConfig.gold.spotDiscountPercent);
   const offerSpotGbpPerGram = roundMoney(spotGbpPerGram * getSpotOfferMultiplier());
-  // Whole-£ and footing to the per-item spot values (see rounding model below).
   const spotTotal = estimates.reduce((sum, item) => sum + roundWholePound(item.spotValue), 0);
   const pricedEstimates = estimates.filter((item) => !item.manual);
   const manualCount = estimates.length - pricedEstimates.length;
-  // Rounding model (documented in docs/gold-pricing-logic.md, in the project
-  // resources repo): every amount shown to a
-  // customer or sent to Zoho is a whole £, and every total is the SUM of its
-  // whole-£ line items — so the per-item amounts always add up to the total
-  // (no ±£1 drift) and the on-screen figures match what Zoho receives. Per-item
-  // pricing keeps pence internally; only the totals are summed from whole items.
+  // Rounding model (full detail: docs/developer/gold-calculator-maths.md).
+  // Every customer/Zoho amount is a whole £; every total is the SUM of its
+  // whole-£ line items, not a rounded sum. Per-item pricing keeps pence
+  // internally.
   const purchaseTotal = pricedEstimates.reduce((sum, item) => sum + roundWholePound(item.purchaseValue), 0);
   const loanTotal = pricedEstimates.reduce((sum, item) => sum + roundWholePound(item.loanValue), 0);
-  // Enquiry-aware indicative value = sum of each item's whole-£ enquiry amount
-  // (loan → loan, sell/consign → purchase, else the higher). Foots to the
-  // per-item gold_item_N_amount fields, which use the identical calculation.
+  // Sum of each item's whole-£ enquiry amount (loan→loan, sell/consign→
+  // purchase, else the higher). Matches the per-item gold_item_N_amount calc.
   const indicativeValue = estimates.reduce((sum, item) => sum + roundWholePound(getDisplayValue(item, enquiryType)), 0);
 
   const hasPricedEstimates = pricedEstimates.length > 0;
@@ -711,9 +686,7 @@ function calculateGoldSummary(estimates, enquiryType, quote, itemsBySlot = estim
   const loanInterestRate = band ? band.interestRate : 0;
   const loanApr = band ? band.apr : 0;
   const loanTermMonths = formConfig.gold?.loanTermMonths || 6;
-  // Interest is whole-£ and self-consistent: monthly rounded once, total =
-  // monthly × term, repayment = loan total + total interest. So monthly × term
-  // always equals the total interest, and loan + interest equals the repayment.
+  // Rounds once; total interest and repayment derive from this value exactly.
   const monthlyInterest = isAboveMax ? 0 : roundWholePound(loanTotal * (loanInterestRate / 100));
   const totalInterest = isAboveMax ? 0 : monthlyInterest * loanTermMonths;
   const repaymentAmount = isAboveMax ? 0 : loanTotal + totalInterest;
@@ -864,8 +837,7 @@ const MONEY_KEYS = new Set([
 ]);
 const NUMBER_KEYS = new Set(["item_count", "manual_count"]);
 const RATE_KEYS = new Set(["interest_rate", "apr"]);
-// Per-item output formatting, applied the same way as the summary outputs so a
-// card can never render a raw decimal because its markup lacked a format attr.
+// Per-item formatting fallback, mirrors the summary keys below.
 const ITEM_MONEY_KEYS = new Set(["spot_total", "purchase_total", "loan_total", "subtotal"]);
 const ITEM_NUMBER_KEYS = new Set(["quantity", "weight"]);
 
@@ -939,23 +911,17 @@ function persistSummary(form, summary) {
   const w = (name, value) => formValues.setHidden(form, name, value);
   w("gold_spot_price_gbp_gram", String(summary.spotGbpPerGram));
   w("gold_spot_price_gbp_ounce", String(summary.spotGbpPerOunce));
-  // Offer traceability: the discount and the discounted spot the offers price
-  // from, so purchase/loan can be reconstructed from the emitted data alone.
+  // Emitted so purchase/loan is reconstructable from submitted data alone.
   w("gold_spot_discount_percent", String(summary.spotDiscountPercent));
   w("gold_offer_spot_price_gbp_gram", String(summary.offerSpotGbpPerGram));
   w("gold_item_count", String(summary.itemCount));
   w("gold_spot_total", String(summary.spotTotal));
-  // All amount/total fields are whole £ and foot to their per-item line items —
-  // the rounding happens once, in calculateGoldSummary (see the rounding model
-  // note there and the gold pricing logic doc), so screen and Zoho agree.
+  // Whole £; rounded once in calculateGoldSummary (see the rounding model there).
   w("gold_purchase_total", String(summary.purchaseTotal));
   w("gold_loan_total", String(summary.loanTotal));
   w("gold_indicative_value", String(summary.indicativeValue));
-  // Single enquiry-aware "Gold Total" for Zoho = sum of the five per-item
-  // gold_item_N_amount fields, so line items always add up to the total.
+  // Zoho "Gold Total" = sum of the five gold_item_N_amount fields.
   w("gold_total", String(summary.indicativeValue));
-  // Interest is whole £ and self-consistent: monthly × term = total interest,
-  // loan + total interest = repayment. Rate to one decimal place.
   w("gold_monthly_interest", String(summary.monthlyInterest));
   w("gold_interest_rate", Number(summary.loanInterestRate).toFixed(1));
   w("gold_apr", String(summary.loanApr));
@@ -978,11 +944,9 @@ function formatHiddenValue(value) {
   return String(value);
 }
 
-// Zoho's item-type picklist is case-sensitive; the form's internal item type is
-// a lowercase slug (coin/bar/jewellery) that is load-bearing for condition rules
-// and pricing lookup, so it must stay lowercase. We map to the display-cased
-// value only at emit time. These strings match the Zoho picklist options the
-// Zap mapping uses.
+// Internal item type stays a lowercase slug (coin/bar/jewellery) — used by
+// condition rules and pricing lookup — and is mapped to Zoho's case-sensitive
+// picklist labels only at emit time.
 const ITEM_TYPE_SUBMIT_LABELS = {
   coin: "Coin",
   bar: "Bar",
@@ -1007,23 +971,17 @@ function persistItemSlotFields(form, summary) {
     w(`gold_item_${index}_quantity`, item?.quantity);
     w(`gold_item_${index}_bullion_name`, item?.bullionName);
     w(`bullion_name_${index}`, item?.label);
-    // #2: quantity is emitted once, as gold_item_${index}_quantity (above). The
-    // former duplicate `quantity_item_${index}` was removed so the Zap maps a
-    // single canonical quantity field. (weight_grams_${index} is retained.)
+    // weight_grams_${index} duplicates the field above; the Zap maps both names.
     w(`weight_grams_${index}`, item?.weightGrams);
     w(`gold_item_${index}_label`, item?.label);
-    // Money values are whole £ (one precision everywhere) and foot to their
-    // totals: Σ gold_item_N_purchase_value = gold_purchase_total, etc.
+    // Whole £; Σ gold_item_N_purchase_value = gold_purchase_total (etc).
     w(`gold_item_${index}_spot_value`, item ? roundWholePound(item.spotValue) : "");
     w(`gold_item_${index}_purchase_value`, item ? roundWholePound(item.purchaseValue) : "");
     w(`gold_item_${index}_loan_value`, item ? roundWholePound(item.loanValue) : "");
-    // Per-item enquiry-aware amount for Zoho's five "Item Amount" fields. Uses
-    // the same branch as the summary indicativeValue (loan → loan, sell/consign
-    // → purchase, else the higher) via getDisplayValue, rounded to whole £ to
-    // match the amount-field formatting. Empty for unused slots.
+    // Same branch as summary indicativeValue (loan→loan, sell/consign→
+    // purchase, else higher), via getDisplayValue. Empty for unused slots.
     w(`gold_item_${index}_amount`, item ? roundWholePound(getDisplayValue(item, summary.enquiryType)) : "");
-    // Every priced/manual item on this form is gold; emit a literal asset type,
-    // gated on slot presence so empty slots don't create phantom Zoho rows.
+    // Literal "Gold" asset type, gated on slot presence to avoid phantom Zoho rows.
     w(`gold_item_${index}_asset_type`, item ? "Gold" : "");
     w(`gold_item_${index}_manual`, item ? item.manual : "");
   }
@@ -1515,10 +1473,8 @@ export function initGoldForms(scope = document) {
       const instance = createInstance(form);
       instances.set(form, instance);
       bindInstance(instance);
-      // Only latch as initialized after a fully successful setup, so a form
-      // whose createInstance threw (e.g. CMS pricing rows injected late) can
-      // be retried on a later initGoldForms pass instead of being permanently
-      // marked done.
+      // Latch only after setup succeeds, so a form whose createInstance threw
+      // (e.g. CMS rows injected late) retries on the next initGoldForms pass.
       initializedForms.add(form);
     } catch (error) {
       initializedForms.delete(form);

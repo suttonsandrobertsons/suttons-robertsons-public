@@ -88,6 +88,9 @@ function onBreakpointChange(event) {
 	const isDesktop = event.matches;
 
 	if (!lastIsDesktop && isDesktop && !hasSplitRun) {
+		// Position-based splitting relies on bounding rects captured while items are
+		// visible on load; a breakpoint change can't trust those rects if items have
+		// just been revealed, so fall back to a plain half split.
 		splitFaqColumns("balanced");
 	}
 

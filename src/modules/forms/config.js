@@ -58,8 +58,8 @@ export const TRACKING_FIELDS = [
   'all_files_url',
 ];
 
-// Shared by the gold form (gold loans) and the standalone pawn loan calculator —
-// one definition so a rate change can never apply to only one of them.
+// Shared by the gold form (gold loans) and the standalone pawn loan calculator,
+// so a rate change can never apply to only one of them.
 const LOAN_RATE_BANDS = [
   { maxExclusive: 5000, interestRate: 6.5, apr: 93.21 },
   { maxInclusive: 15000, interestRate: 6.0, apr: 84.96 },
@@ -82,13 +82,12 @@ export const formConfig = {
     error: '[data-form-error], .form_field-error',
     conditional: '[data-form-show-if], [data-form-show-if-group], [data-form-hide-if], [data-form-hide-if-group], [data-form-hide-if-any], [data-form-hide-if-any-group]',
     action: '[data-form-action]',
-    // Primary / image value target. `data-form-upload-value-image` is the explicit
-    // name; bare `data-form-upload-value` is the backward-compatible alias (older
-    // single-field forms). Images (incl. converted WebP/HEIC/HEIF → JPEG) land here
-    // → Zoho Image Upload field.
+    // `data-form-upload-value-image` is the explicit name; bare
+    // `data-form-upload-value` is the backward-compatible alias for older
+    // single-field forms. Images land here → Zoho Image Upload field.
     uploadValue: '[data-form-upload-value-image], [data-form-upload-value]',
-    // Optional second value target. Documents/videos land here → Zoho File Upload
-    // field. If a widget has no file target, everything falls back to uploadValue.
+    // Documents and videos land here → Zoho File Upload field. If a widget
+    // has no file target, everything falls back to uploadValue.
     uploadValueFile: '[data-form-upload-value-file]',
     uploadName: '[data-form-upload-name], .form_upload-name',
     controls: 'input, select, textarea, button',
@@ -110,10 +109,9 @@ export const formConfig = {
     quoteUrlStep: '2',
     utmParams: ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content'],
     clickIdParams: ['gclid', 'fbclid'],
-    // Single source of truth for "is this a real sales lead, not a newsletter
-    // signup or utility widget" — GTM triggers off the form_category field
-    // this produces in the form_submission dataLayer push, instead of
-    // hardcoding form keys in GTM.
+    // "Real sales lead" (not newsletter/utility) for GTM: it triggers off
+    // the form_category field this produces, instead of hardcoding form
+    // keys in GTM.
     leadFormKeys: new Set(['get-a-quote', 'gold', 'appointment', 'courier']),
     hiddenFields: [...TRACKING_FIELDS],
   },
@@ -125,23 +123,13 @@ export const formConfig = {
     clientHeaderValue: 'suttons-form-v2-2026',
     tempFileTimeoutMs: 5 * 60 * 1000,
     maxBytes: 20 * 1024 * 1024,
-    // Human-readable accepted-types list, single source of truth for all
-    // user-facing upload copy (the front-end helper text and the JS error
-    // messages). Keep in sync with allowedMimeTypes / allowedExtensions below.
-    // Front-end helper copy: `Max 20MB. ${acceptedLabel} accepted.`
+    // Single source of truth for customer-facing upload copy. Keep in sync
+    // with allowedMimeTypes / allowedExtensions below.
     acceptedLabel: 'JPEG, PNG, HEIC, HEIF, WEBP, GIF, PDF, DOC, DOCX, MP4, MOV, WEBM',
-    // Any upload field accepts images, documents, or videos — Zapier routes each
-    // to the right Zoho field by type (Image Upload vs File Upload).
-    //   • Images: WebP/HEIC/HEIF are transcoded to JPEG server-side by the worker
-    //     (the upload worker); the worker returns the JPEG URL so what
-    //     reaches Zapier/Zoho is always a Zoho-safe JPEG.
-    //   • Documents + videos pass straight through (not converted) and are stored
-    //     as-is. Zoho's File Upload field accepts these, capped at 20 MB via
-    //     maxBytes above.
-    // Keep this in sync with the worker's ALLOWED_TYPES / ALLOWED_EXTENSIONS
-    // (the upload worker) — that's the worker's sole authoritative
-    // copy. Necessarily a separate copy here: this is a different bundle for
-    // a different runtime (browser vs Worker), so it can't be a shared import.
+    // Images: WebP/HEIC/HEIF are transcoded to JPEG server-side by the
+    // Worker; documents/videos pass through unconverted to Zoho's File
+    // Upload field. Mirrors the Worker's ALLOWED_TYPES / ALLOWED_EXTENSIONS
+    // (authoritative there) — update both together.
     allowedMimeTypes: [
       // images
       'image/jpeg', 'image/png', 'image/gif', 'image/webp',
@@ -168,12 +156,12 @@ export const formConfig = {
   },
 
   submit: {
-    // Fields built as several same-named hidden inputs, each gated by a
-    // data-form-show-if, where exactly one should submit. Without single-submit
-    // dedup, every variant serialises under the same name and Zapier/Zoho picks
-    // the wrong one (box_and_papers was resolving to "None" — the inactive
-    // variants weren't renamed to the _disabled_ prefix). See core/fields.js
-    // prepareSingleSubmitControls.
+    // Same-named hidden inputs, each gated by show-if, where exactly one
+    // should submit; without dedup, Zapier/Zoho would pick the wrong one.
+    // See core/fields.js prepareSingleSubmitControls.
+    // New_Lead_Type is derived (derived-fields.js) and has no such inputs left
+    // in the Designer. Its entry guards any unswept page still carrying the old
+    // markup — do not remove it as dead.
     singleValueFieldNames: ['New_Lead_Type', 'box_and_papers', 'appointment_length', 'meeting_venue', 'bullion_name'],
     disabledNamePrefix: '_disabled_',
   },
@@ -185,10 +173,8 @@ export const formConfig = {
     ouncesPerTroy: 31.1034768,
     purchaseToValuePercent: 88,
     loanToValuePercent: 75,
-    // Reduces the live spot price by this percent BEFORE the purchase/loan
-    // ratios are applied, to absorb spot-feed variance. Applies to the purchase
-    // & loan offers only; the displayed spot value stays the true market figure.
-    // Set to 0 to disable.
+    // Reduces live spot by this percent before purchase/loan ratios apply
+    // (see gold.js getSpotOfferMultiplier). Set to 0 to disable.
     spotDiscountPercent: 2,
     loanTermMonths: 6,
     rateBands: LOAN_RATE_BANDS,
@@ -219,14 +205,14 @@ export const formConfig = {
   managedAttributes: ['inputmode', 'autocomplete', 'maxlength'],
 
   address: {
-    // Google Places API key — restricted by HTTP referrer to your domain(s).
-    // Set this via the .js global or edit the value below.
+    // Google Places API key, restricted by HTTP referrer to the site's
+    // domain(s). No runtime override exists; edit the value below to change it.
     googlePlacesApiKey: 'AIzaSyARV7qz4ohGmCpEFJGCegIe27r5PzF2v1o',
     placesApiBase: 'https://places.googleapis.com/v1',
     ukOnly: true,
 
-    // Demo mode: no API key needed. Generates fake suggestions + address data.
-    // Set to false when you have a real googlePlacesApiKey configured.
+    // Demo mode: no API key needed. Generates fake suggestions and address
+    // data. Set to false once a real googlePlacesApiKey is configured.
     demo: false,
   },
 };
@@ -408,9 +394,9 @@ export const fieldFilters = {
 export const fieldValidators = {
   email(value) {
     if (/[<>]/.test(value)) return false;
-    // Domain must be dot-separated labels with a real TLD — no leading/trailing
-    // dot and no consecutive dots (the old [^\s@]+ allowed "x@y.com." through,
-    // which Zoho then rejects). Local part still allows internal dots.
+    // Domain must be dot-separated labels with a real TLD: no leading or
+    // trailing dot, no consecutive dots. The old [^\s@]+ let "x@y.com."
+    // through, which Zoho then rejected. Local part still allows internal dots.
     return /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/.test(String(value).trim());
   },
   phone(value) {

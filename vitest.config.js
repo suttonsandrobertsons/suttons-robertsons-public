@@ -5,9 +5,9 @@ export default defineConfig({
     environment: 'jsdom',
     // Playwright specs live in e2e/ and are run by `npm run test:e2e`, not vitest.
     exclude: ['node_modules/**', 'e2e/**'],
-    // Keep globals false for explicit imports; our tests use import { describe, it, expect }
+    // False for explicit imports: tests use import { describe, it, expect }
     globals: false,
-    // Increase timeout slightly for attribution storage/cookie tests if needed
+    // Longer timeout for attribution storage/cookie tests
     testTimeout: 10000,
   },
 })

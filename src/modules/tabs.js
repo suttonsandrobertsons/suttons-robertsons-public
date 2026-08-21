@@ -350,6 +350,8 @@ function createTabs(component) {
 		return null;
 	}
 
+	// Template must be a native <button> so cloned tabs keep correct keyboard
+	// and focus behaviour — a div-based template would silently break navigation.
 	if (template.tagName !== "BUTTON") {
 		return null;
 	}
@@ -538,6 +540,8 @@ export function initTabs(scope = document) {
 	const instances = getComponents(root).map(createTabs).filter(Boolean);
 
 	if (instances.length) {
+		// Rebuilt tab lists can change the tab-strip width, so ask the overflow
+		// drag module (exposed on the shared window.sr namespace) to re-measure.
 		const refreshOverflowDrag = window.sr?.functions?.initOverflowDrag;
 
 		if (typeof refreshOverflowDrag === "function") {

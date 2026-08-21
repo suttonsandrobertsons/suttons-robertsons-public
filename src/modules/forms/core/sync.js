@@ -7,9 +7,9 @@ import { getFormApp } from './lazy-app.js';
 /** Modes where this form proxies submit to another form on the page. */
 export const SYNC_FORM_MODES = new Set(['mirror', 'sync']);
 
-// Roots currently mid-submit via submitTargetForm. Clicking a target that is
-// itself a managed sync form re-enters the sync guard synchronously; this latch
-// prevents the target from recursively re-submitting.
+// Roots mid-submit via submitTargetForm. Clicking a target that is itself a
+// managed sync form re-enters the sync guard synchronously; this latch stops
+// the target recursively re-submitting.
 const submittingRoots = new WeakSet();
 
 export const SYNC_FORM_SELECTOR = [
@@ -23,11 +23,15 @@ export const SYNC_FORM_SELECTOR = [
 
 /**
  * Sync/mirror forms collect input in injected or component markup but hand off
- * to a native Webflow form elsewhere on the page. Configure entirely via attrs:
+ * to a native Webflow form elsewhere on the page. Configured entirely by attrs:
  *
  *   data-form-sync-form="footer-form"   (target data-form key or id; required)
  *   data-form-mode="sync" | "mirror"    (optional when sync-form is set)
  *   data-form-sync-fields="email:email" (optional; comma-separated from:to pairs)
+ *
+ * data-form-redirect-form, or data-form-mode="redirect" with an on-page
+ * target (see hasOnPageTarget), also counts as sync; an off-page target goes
+ * through formRedirect instead. isSync() is the single source of truth.
  */
 export const formSync = {
   isSync(form) {
@@ -60,9 +64,9 @@ export const formSync = {
     const key = this.getTargetFormKey(form);
     if (!key) return null;
 
-    // Escape only quote/backslash for the attribute-value half (a quoted string,
-    // not an identifier — CSS.escape would over-escape hyphens/spaces); use
-    // CSS.escape for the #id half (an identifier token).
+    // Attribute-value half is a quoted string, not an identifier — escape only
+    // quote/backslash, since CSS.escape would over-escape hyphens/spaces. #id
+    // half is an identifier token, so use CSS.escape there.
     const attrValue = String(key).replace(/(["\\])/g, '\\$1');
     return document.querySelector(`form[data-form="${attrValue}"], #${escapeSelector(key)}`);
   },

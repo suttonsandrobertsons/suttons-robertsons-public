@@ -69,12 +69,10 @@ export const formDerivedFields = {
   },
 }
 
-// Zoho meetings need a start AND a mandatory end datetime in
-// `YYYY-MM-DDTHH:mm:ss`. Compute both from the appointment date + time + the
-// gated `appointment_length` (minutes). Kept separate from the generic date/time
-// formatter above (which only reformats single fields — no arithmetic, no
-// combining). Reads via get() so the home-visit path (date/time condition-hidden)
-// yields nothing and we simply emit no datetimes there.
+// Zoho meetings need a start AND a mandatory end datetime
+// (`YYYY-MM-DDTHH:mm:ss`), from the appointment date + time and the gated
+// `appointment_length` minutes. Reads via get(), so the home-visit path
+// (date/time condition-hidden) yields nothing and no datetimes are emitted.
 function deriveAppointmentDatetimes(root) {
   const dateStr = (formValues.get(root, 'appointment_date')[0] || '').trim()
   const timeStr = (formValues.get(root, 'appointment_time')[0] || '').trim()
@@ -94,9 +92,8 @@ function deriveAppointmentDatetimes(root) {
   setHidden(root, 'appointment_end_datetime', Number.isFinite(length) ? addMinutes(date, time, length) : '')
 }
 
-// Add `minutes` to a `YYYY-MM-DD` + `HH:mm:ss` and return `YYYY-MM-DDTHH:mm:ss`.
-// Uses UTC date arithmetic purely for a clean day-rollover (no timezone shift is
-// applied to the wall-clock values themselves).
+// Adds `minutes` to `YYYY-MM-DD` + `HH:mm:ss`, returns `YYYY-MM-DDTHH:mm:ss`.
+// UTC is used only for day-rollover arithmetic; no timezone shift is applied.
 export function addMinutes(date, time, minutes) {
   const pad = (n) => String(n).padStart(2, '0')
   const [Y, Mo, D] = date.split('-').map(Number)
@@ -113,36 +110,29 @@ export function addMinutes(date, time, minutes) {
   return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}T${pad(eh)}:${pad(em)}:${pad(s || 0)}`
 }
 
-// Zoho's New_Lead_Type is a multi-select, so it takes one comma-joined string.
-// This used to be four same-named hidden inputs in the Designer, one per enquiry
-// value, each with its own show-if — but the single-submit dedup only ever lets
-// ONE of a same-named group submit, so a lead could never carry more than one
-// type. The Yes/No follow-ups make the outcome combinatorial, so it's derived
-// here instead and the hidden inputs are gone.
+// Zoho's New_Lead_Type is a multi-select: one comma-joined string, derived
+// here because the Yes/No follow-ups make the outcome combinatorial.
+// enquiry_type is matched exactly and case-sensitively (`Loan`, `Sell My
+// Items`); the Yes/No follow-ups below are matched case-insensitively.
 //
-// The follow-ups are only read inside the Sell branch, so a Loan enquiry can
-// never pick up a stale Yes even if its show-if were missing. get() also skips
-// condition-hidden controls, so a hidden follow-up reads as unanswered.
+// Follow-ups are read only inside the Sell branch, so a Loan enquiry can't
+// pick up a stale Yes. get() skips condition-hidden controls, so a hidden
+// follow-up reads as unanswered.
 //
-// An enquiry value we don't recognise writes an empty string rather than
-// guessing — better a visibly empty field in Zoho than a wrong lead type.
+// An unrecognised enquiry value writes empty rather than guessing.
 function deriveNewLeadType(root) {
   const enquiry = (formValues.get(root, 'enquiry_type')[0] || '').trim()
   if (!enquiry) return
 
-  // Case-insensitive: the site's other Yes/No radios (original_box,
-  // original_paperwork) use lowercase `yes`/`no`, so accept either casing
-  // rather than depend on how these two get built in the Designer.
   const answeredYes = (name) => (formValues.get(root, name)[0] || '').trim().toLowerCase() === 'yes'
   const types = []
 
   if (enquiry === 'Loan') {
     types.push('Loan Customer')
   } else if (enquiry === 'Sell My Items') {
-    // SHP Customer is the base for every sell lead, not conditional on the
-    // follow-ups: without it, a sell lead answering No to both would submit an
-    // empty field. It also means a form that omits the follow-ups still sends a
-    // type. AWAITING CLIENT CONFIRMATION: the spec only adds SHP alongside Loan
+    // SHP Customer is the base for every sell lead (not conditional on the
+    // follow-ups), so a lead answering No to both still sends a type.
+    // AWAITING CLIENT CONFIRMATION: the spec only adds SHP alongside Loan
     // Customer when follow-up 1 is Yes.
     types.push('SHP Customer')
     if (answeredYes('enquiry_consider_loan')) types.push('Loan Customer')
@@ -152,13 +142,11 @@ function deriveNewLeadType(root) {
   setHidden(root, 'New_Lead_Type', types.join(', '))
 }
 
-// Coalesce the asset picker into a single value for Zoho's Asset_Type field:
-// when the asset is "Other", take the other_asset_types sub-type; otherwise the
-// main category. This ONLY picks between the two existing values — both already
-// emit the exact Zoho option strings (aligned at source in the CMS), so there's
-// no translation here and nothing to drift. Lets Zapier map one field with no
-// Formatter/lookup step. other_asset_types reads empty unless it's visible
-// (get() skips condition-hidden fields), so a stale sub-type can't leak through.
+// Coalesces the asset picker for Zoho's Asset_Type: when asset_type is
+// exactly "Other", takes the other_asset_types sub-type; otherwise the main
+// category. Both already emit the exact Zoho option strings, so Zapier can
+// map one field. other_asset_types reads empty when condition-hidden, so a
+// stale sub-type can't leak through.
 function deriveCombinedAssetType(root) {
   const assetType = (formValues.get(root, 'asset_type')[0] || '').trim()
   if (!assetType) return

@@ -9,8 +9,8 @@ import { formDerivedFields } from '../derived-fields.js';
 
 let hasSyncSubmitGuard = false;
 
-// Tracks form roots whose listeners are already bound, so bind() stays idempotent
-// across re-init (e.g. a pruned-then-reconnected node re-created by formApp.boot).
+// Keeps bind() idempotent across re-init — e.g. a pruned-then-reconnected node
+// re-created by formApp.boot.
 const boundRoots = new WeakSet();
 
 function resolveSyncForm(root) {
@@ -27,8 +27,8 @@ function resolveSyncForm(root) {
 }
 
 function runSyncSubmit(root) {
-  // A target that is itself a sync form re-enters here synchronously while its
-  // submit control is being clicked; skip so it doesn't recursively re-submit.
+  // A sync target re-enters here synchronously while its own submit control is
+  // being clicked; skip to avoid recursive re-submit.
   if (formSync.isSubmittingTarget(root)) return;
 
   formSync.primeRoot(root);
@@ -57,7 +57,7 @@ function getSubmitterForm(submitter) {
   return submitter.closest?.('form') || null;
 }
 
-// 10. EVENTS EVENT LISTENERS BINDING
+// EVENT LISTENER BINDING
 // ============================================================================
 export const formEvents = {
   emitChange(form, detail = {}) {
@@ -74,14 +74,14 @@ export const formEvents = {
   },
 
   bind(form) {
-    // Observers live on the form object, so a reconnected root re-created with a
-    // fresh form object needs them re-established even when its DOM listeners
-    // already persist from a previous bind — do this before the idempotency guard.
+    // Observers live on the form object, not the DOM node, so a reconnected
+    // root with a fresh form object needs them re-established even when its
+    // DOM listeners persist from a previous bind. Do this before the guard below.
     this.watchSuccess(form);
     this.watchFailure(form);
 
-    // Idempotency guard: listeners persist on a detached node, so if a pruned
-    // root is reconnected and re-created, re-binding would double-add them.
+    // DOM listeners persist on a detached node; re-binding on a reconnected
+    // root would double-add them.
     if (boundRoots.has(form.root)) return;
     boundRoots.add(form.root);
 
@@ -113,7 +113,7 @@ export const formEvents = {
       true,
     );
 
-    // Listen for reset actions inside .w-form-done (sibling of form)
+    // Reset actions live inside .w-form-done, a sibling of the form.
     const wForm = form.scope;
     if (wForm) {
       wForm.addEventListener('click', (event) => {
@@ -125,7 +125,6 @@ export const formEvents = {
       });
     }
 
-    // Upload trigger/remove listeners
     form.root.addEventListener('click', (event) => {
       const liveForm = this.live(form);
       const trigger = event.target.closest(SELECTORS.uploadTrigger);
@@ -303,11 +302,9 @@ export const formEvents = {
 
     formLogger.log(form, 'Submit passed validation, processing.');
 
-    // The success-path work below (normalise, sync/redirect submit, derived
-    // fields, attribution, GTM push) can throw. If it escapes uncaught, the
-    // form is left wedged: isSubmitting stays true (all future submits are
-    // "duplicate"-blocked) and the button sits disabled. Wrap it so any failure
-    // resets submit state and re-enables controls, letting the user retry.
+    // The success-path work below can throw. Uncaught, it wedges the form:
+    // isSubmitting stays true (future submits are "duplicate"-blocked) and the
+    // button sits disabled. Catch resets submit state so the customer can retry.
     try {
       formFields.normalizeBeforeSubmit(form);
       getFormApp().refresh(form);
@@ -331,13 +328,13 @@ export const formEvents = {
       if (!isRedirectSubmit) {
         formParams.clear(form);
         form.isSubmitting = true;
-        // Webflow can navigate to the success URL before the .w-form-done watcher
-        // observes a visible success state, so push GTM once before handoff.
+        // Pushes GTM once before handoff: Webflow can navigate to the success
+        // URL before the .w-form-done watcher observes a visible success state.
         formAttribution.pushDataLayer(form);
       }
 
-      // Event for optional dev tooling, enabled only when dev.js is imported.
-      // Fired after the final refresh so the dev table mirrors the Webflow/Zapier payload.
+      // For optional dev tooling (active only when dev.js is imported). Fired
+      // after the final refresh so the dev table mirrors the Webflow/Zapier payload.
       try {
         form.root.dispatchEvent(new CustomEvent('suttons:form-submit', {
           detail: { form, originalEvent: event },
@@ -350,25 +347,25 @@ export const formEvents = {
         event.preventDefault();
         event.stopImmediatePropagation();
         event.stopPropagation();
-        // Generate attribution + unique_id NOW (before navigation) so the redirect URL carries Reference/UTM/organic.
-        // Also writes hidden inputs on the source form for completeness.
+        // Generates attribution + unique_id before navigation so the redirect
+        // URL carries Reference/UTM/organic; also writes hidden inputs on the
+        // source form for completeness.
         form.isSubmitting = true;
         formRedirect.submit(form, redirectValues, attributionMeta);
         formLogger.log(form, 'Redirect form submitted.');
         return;
       }
 
-      // Native handoff to Webflow. Arm a fallback timer: if neither the success
-      // (.w-form-done) nor failure (.w-form-fail) observer fires within the
-      // window (hung request / CORS / adblock), clear submit state so the user
-      // is not permanently locked out. The observers clear this timer if they
-      // fire first (see clearSubmitTimeout).
+      // Native handoff to Webflow. Fallback timer: if neither the success
+      // (.w-form-done) nor failure (.w-form-fail) observer fires in time (hung
+      // request, CORS, adblock), clear submit state so the customer is not
+      // locked out. Observers clear this timer if they fire first (clearSubmitTimeout).
       this.armSubmitTimeout(form);
       formLogger.log(form, 'Form handed to Webflow.');
     } catch (error) {
-      // Fail safe: never leave the form wedged. Reset submit state and re-enable
-      // controls so the user can retry. Do not swallow the intent to submit —
-      // if the native event was not prevented, Webflow's own submit still runs.
+      // Fail safe: reset submit state so the customer can retry rather than
+      // leaving the form wedged. Does not swallow the submit intent — if the
+      // native event was not prevented, Webflow's own submit still runs.
       formLogger.error(form, 'Submit success-path threw; resetting submit state.', error);
       this.resetSubmitState(form);
     }
@@ -527,8 +524,9 @@ export const formEvents = {
   },
 };
 
-// Injected sync forms (fs-inject) may submit before formApp.boot() binds listeners.
-// method="get" on the Webflow preset would otherwise navigate with ?email=… in the URL.
+// Guards injected sync forms (fs-inject), which may submit before formApp.boot()
+// binds listeners — otherwise method="get" on the Webflow preset navigates with
+// ?email=… in the URL.
 export function initSyncSubmitGuard() {
   if (typeof document === 'undefined') return;
   if (hasSyncSubmitGuard) return;

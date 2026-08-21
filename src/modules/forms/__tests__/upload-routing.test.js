@@ -265,7 +265,6 @@ describe('upload lifecycle: request supersession (A-then-B)', () => {
     const pB = formUploads.handle(form(), upload, imageFile('B.jpg'))
     expect(MockXHR.instances.length).toBe(2)
 
-    // B resolves first (fast) and writes its URL.
     MockXHR.instances[1].respond({ status: 200, body: { url: 'https://x/B.jpg', category: 'image' } })
     await pB
     expect(imageField(upload).value).toBe('https://x/B.jpg')
@@ -284,7 +283,6 @@ describe('upload lifecycle: request supersession (A-then-B)', () => {
     const xhrA = MockXHR.instances[0]
     const pB = formUploads.handle(form(), upload, imageFile('B.jpg'))
 
-    // Selecting B must have called xhr.abort() on A's request.
     expect(xhrA.aborted).toBe(true)
 
     MockXHR.instances[1].respond({ status: 200, body: { url: 'https://x/B.jpg', category: 'image' } })

@@ -45,10 +45,8 @@ describe("qa-upload hook", () => {
     // Index 1 → the second widget (back_image_input).
     expect(uploadArg.querySelector("[name]").name).toBe("back_image_input");
     expect(fileArg).toBe(file);
-    // Refresh + params update run, mirroring a real pick.
     expect(formApp.refresh).toHaveBeenCalledOnce();
     expect(formParams.update).toHaveBeenCalledOnce();
-    // Returns the populated value-field URL.
     expect(url).toBe("https://cdn.example/x.jpg");
   });
 

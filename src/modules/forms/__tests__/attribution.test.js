@@ -10,7 +10,6 @@ import {
 } from '../core.js'
 import { formConfig } from '../config.js'
 
-// Minimal controllable storage
 function makeStorage(initial = {}, throwOnWrite = false) {
   let data = { ...initial }
   return {
@@ -25,7 +24,6 @@ function makeStorage(initial = {}, throwOnWrite = false) {
 }
 
 function makeFormFixture() {
-  // Create a minimal form root with some visible fields the attribution helpers read
   const root = document.createElement('form')
   root.setAttribute('data-form', 'test')
 
@@ -82,18 +80,15 @@ describe('attribution capture + expiry + organic inference', () => {
   const originalReferrer = Object.getOwnPropertyDescriptor(Document.prototype, 'referrer')
 
   beforeEach(() => {
-    // Reset cookies between tests
     document.cookie.split(';').forEach((c) => {
       const eq = c.indexOf('=')
       const name = eq > -1 ? c.slice(0, eq).trim() : c.trim()
       if (name) document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/`
     })
-    // Default: no referrer
     Object.defineProperty(document, 'referrer', { configurable: true, get: () => '' })
   })
 
   afterEach(() => {
-    // Restore
     if (originalReferrer) {
       Object.defineProperty(Document.prototype, 'referrer', originalReferrer)
     }
@@ -102,11 +97,9 @@ describe('attribution capture + expiry + organic inference', () => {
 
   it('capture writes first landing and UTM from URL, persists to storage', () => {
     const storage = makeStorage()
-    // Spy getStorage
     const origGet = formAttribution.getStorage
     formAttribution.getStorage = () => storage
 
-    // Simulate landing with UTM
     const url = new URL(window.location.href)
     url.searchParams.set('utm_source', 'google')
     url.searchParams.set('utm_medium', 'cpc')
@@ -132,12 +125,10 @@ describe('attribution capture + expiry + organic inference', () => {
     const origGet = formAttribution.getStorage
     formAttribution.getStorage = () => storage
 
-    // Clean URL (no UTM)
     const url = new URL(window.location.href)
     url.search = ''
     window.history.replaceState({}, '', url.toString())
 
-    // Set referrer to google
     Object.defineProperty(document, 'referrer', { configurable: true, get: () => 'https://www.google.com/search?q=suttons' })
 
     formAttribution.capture()
@@ -163,7 +154,6 @@ describe('attribution capture + expiry + organic inference', () => {
     const origGet = formAttribution.getStorage
     formAttribution.getStorage = () => storage
 
-    // Clean current URL (no new UTM)
     const url = new URL(window.location.href)
     url.search = ''
     window.history.replaceState({}, '', url.toString())
@@ -172,7 +162,6 @@ describe('attribution capture + expiry + organic inference', () => {
     formAttribution.capture()
 
     const data = JSON.parse(storage.getItem(formConfig.attribution.storageKey) || '{}')
-    // Stale paid signals should have been cleared
     expect(data.utm_source || '').toBe('')
     expect(data.utm_medium || '').toBe('')
     expect(data.gclid || '').toBe('')
@@ -233,7 +222,6 @@ describe('attribution capture + expiry + organic inference', () => {
     const origGet = formAttribution.getStorage
     formAttribution.getStorage = () => storage
 
-    // Seed attribution so fields are populated
     storage.setItem(formConfig.attribution.storageKey, JSON.stringify({
       first_landing_url: 'https://suttons.com/landing',
       first_page: 'https://suttons.com/landing',
@@ -250,20 +238,17 @@ describe('attribution capture + expiry + organic inference', () => {
     const form = { root, key: 'test' }
     const meta = formAttribution.setFields(form)
 
-    // Check hidden inputs exist with correct names
     const names = ['unique_id', 'lead_reference', 'first_landing_url', 'GCLID', 'utm_source', 'all_files_url']
     names.forEach((n) => {
       const el = root.querySelector(`[name="${n}"]`)
       expect(el, `missing hidden field ${n}`).toBeTruthy()
     })
 
-    // lead_reference and unique_id should have the same generated value
     const uid = root.querySelector('[name="unique_id"]').value
     const lref = root.querySelector('[name="lead_reference"]').value
     expect(uid).toBeTruthy()
     expect(lref).toBe(uid)
 
-    // quote_url should be present and contain ref + step
     const q = root.querySelector('[name="quote_url"]').value
     expect(q).toMatch(/ref=/)
     expect(q).toMatch(/step=2/)
@@ -655,7 +640,6 @@ describe('redirect form attribution carry + Reference on TY', () => {
     root.setAttribute('data-form-redirect-url', '/get-a-quote')
     root.setAttribute('data-form-redirect-form', 'get-a-quote')
 
-    // Minimal fields
     const ln = document.createElement('input')
     ln.name = 'last_name'
     ln.value = 'Smith'
@@ -663,7 +647,6 @@ describe('redirect form attribution carry + Reference on TY', () => {
 
     document.body.appendChild(root)
 
-    // Seed attribution in a controllable storage
     const storage = makeStorage()
     const origGet = formAttribution.getStorage
     formAttribution.getStorage = () => storage
@@ -688,7 +671,6 @@ describe('redirect form attribution carry + Reference on TY', () => {
 
     expect(targetHref).toBeTruthy()
     const u = new URL(targetHref, 'http://localhost/')
-    // Attribution carried under redirect param namespacing (getParamName uses targetForm key or falls back)
     // The implementation uses formParams.getParamName which for redirect forms uses data-form-redirect-form as key.
     // We assert that the values appear either bare or under the target key prefix.
     const allParams = Array.from(u.searchParams.entries()).map(([k, v]) => `${k}=${v}`).join('&')
@@ -754,12 +736,10 @@ describe('redirect form attribution carry + Reference on TY', () => {
 
 describe('cookie fallback resilience', () => {
   it('readAttribution falls back to cookie when storage is empty/corrupt', () => {
-    // Clear storage key
     const storage = makeStorage()
     const origGet = formAttribution.getStorage
     formAttribution.getStorage = () => storage
 
-    // Write a cookie payload directly
     const payload = {
       first_landing_url: 'https://suttons.com/landing',
       utm_source: 'bing',
@@ -788,7 +768,6 @@ describe('cookie fallback resilience', () => {
     })
     expect(ok).toBe(false)
 
-    // Cookie should have been written
     const c = document.cookie.split(';').map((s) => s.trim()).find((s) => s.startsWith('sr_attribution='))
     expect(c).toBeTruthy()
     const decoded = JSON.parse(decodeURIComponent(c.split('=')[1]))
@@ -916,8 +895,10 @@ describe('UTM sanitization (whitespace-corruption guard)', () => {
 })
 
 // PII/cookie remediation: cookies must be Secure; the success snapshot must
-// keep only fields a thank-you page renders (see THANK-YOU-OUTPUTS.md), must be
-// consumed-then-cleared on hydrate, and must expire via a savedAt TTL.
+// keep only fields a thank-you page renders (documented in
+// docs/developer/thank-you-outputs.md in the private companion repo), must be
+// consumed-then-cleared by trackSuccess (not by hydrateOutputs), and must
+// expire via a savedAt TTL.
 describe('PII/cookie remediation', () => {
   function withCookieSpy(fn) {
     const writes = []
@@ -1108,9 +1089,7 @@ describe('thank-you page form_submission push (formSuccessPage.trackSuccess)', (
     expect(window.sessionStorage.getItem('sr_form_success_SR-900')).not.toBeNull()
     formSuccessPage.trackSuccess(document)
 
-    // Push landed…
     expect(window.dataLayer.find((e) => e.event === 'form_submission')).toBeTruthy()
-    // …and only then was the snapshot cleared.
     expect(window.sessionStorage.getItem('sr_form_success_SR-900')).toBeNull()
   })
 

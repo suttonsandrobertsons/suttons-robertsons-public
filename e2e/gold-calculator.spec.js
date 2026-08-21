@@ -1,6 +1,5 @@
 import { test, expect } from "@playwright/test";
 
-// Live smoke/regression tests for the gold calculator.
 // The /dev/forms/ page is a single-item calculator harness (no add-item,
 // upload, or continue nav), so multi-item, upload and step behaviour is not
 // covered here — those need the full multi-step form page.
@@ -72,7 +71,6 @@ async function pollForTotal(page, field) {
 }
 
 test.describe("gold calculator (live)", () => {
-  // Default item state before an item type is chosen.
   test("condition rules toggle field visibility (carat vs bullion)", async ({
     page,
   }) => {
@@ -107,7 +105,6 @@ test.describe("gold calculator (live)", () => {
     expect(values).toEqual(expect.arrayContaining(["9", "14", "18", "22", "24"]));
   });
 
-  // Interest rate is emitted to one decimal place.
   test("loan estimate emits whole-£ amounts, per-item amount, asset type", async ({
     page,
   }) => {
@@ -116,17 +113,15 @@ test.describe("gold calculator (live)", () => {
     await pollForTotal(page, "gold_loan_total");
 
     const e = await readEmit(page);
-    expect(e.gold_purchase_total).toMatch(/^\d+$/); // whole £
+    expect(e.gold_purchase_total).toMatch(/^\d+$/);
     expect(e.gold_loan_total).toMatch(/^\d+$/);
     expect(e.gold_total).toMatch(/^\d+$/);
     expect(e.gold_item_1_asset_type).toBe("Gold");
-    expect(e.gold_item_1_amount).toBe(e.gold_loan_total); // loan → loan value
+    expect(e.gold_item_1_amount).toBe(e.gold_loan_total);
     expect(e.gold_item_1_type).toBe("Jewellery"); // Zoho picklist case
-    expect(e.gold_interest_rate).toMatch(/^\d+\.\d$/); // one decimal place
+    expect(e.gold_interest_rate).toMatch(/^\d+\.\d$/);
   });
 
-  // Enquiry-aware totals: sell flips gold_total/amount to the purchase value,
-  // and the estimate row (show-if enquiry_type = Sell My Items) becomes visible.
   test("sell enquiry flips amounts to purchase and shows the estimate row", async ({
     page,
   }) => {
@@ -139,14 +134,14 @@ test.describe("gold calculator (live)", () => {
     await pollForTotal(page, "gold_purchase_total");
 
     const e = await readEmit(page);
-    expect(e.gold_total).toBe(e.gold_purchase_total); // sell → purchase
+    expect(e.gold_total).toBe(e.gold_purchase_total);
     expect(e.gold_item_1_amount).toBe(e.gold_purchase_total);
     await expect(page.locator(".form-gold_estimate-row").first()).toBeVisible();
   });
 
-  // Pricing intent: 2% spot haircut before the 88% purchase / 75% loan ratios.
+  // Pricing intent: 2% spot discount before the 88% purchase / 75% loan ratios.
   // Asserts a band (rounding-tolerant) that rejects the ratios reverting
-  // (e.g. haircut removed → purchase/spot 0.88, or LTV back to 70% → 0.69).
+  // (e.g. discount removed → purchase/spot 0.88, or LTV back to 70% → 0.69).
   test("purchase/loan sit at the discounted ratios vs raw spot", async ({
     page,
   }) => {
@@ -159,9 +154,9 @@ test.describe("gold calculator (live)", () => {
     const purchaseRatio = Number(e.gold_item_1_purchase_value) / spot;
     const loanRatio = Number(e.gold_item_1_loan_value) / spot;
     expect(purchaseRatio).toBeGreaterThan(0.85); // ~0.86 (0.98 × 0.88)
-    expect(purchaseRatio).toBeLessThan(0.875); // rejects 0.88 (no haircut)
+    expect(purchaseRatio).toBeLessThan(0.875); // rejects 0.88 (no discount)
     expect(loanRatio).toBeGreaterThan(0.72); // ~0.74 (0.98 × 0.75)
-    expect(loanRatio).toBeLessThan(0.745); // rejects 0.75 (no haircut)
+    expect(loanRatio).toBeLessThan(0.745); // rejects 0.75 (no discount)
   });
 
   // Empty item slots emit blank amount/asset type — no phantom Zoho line items.

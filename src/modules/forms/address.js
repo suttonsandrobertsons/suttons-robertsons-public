@@ -6,9 +6,8 @@ const cfg = formConfig.address;
 const UK_FILTER = cfg.ukOnly ? ["GB"] : null;
 const isDemo = () => cfg.demo && !cfg.googlePlacesApiKey;
 
-// Single shared document pointerdown handler closes any open suggestions when
-// clicking outside their input/container. Registering one handler (instead of
-// one per init) avoids stacking listeners across repeated inits and forms.
+// One shared document pointerdown handler, not one per init, so repeated
+// inits don't stack listeners.
 const outsideClickTargets = new Set();
 let outsideClickRegistered = false;
 
@@ -46,10 +45,9 @@ function setDefaultCountry(form) {
   fillField(form, "country", "United Kingdom");
 }
 
-// Canonicalise a UK postcode to upper-case with a single space before the final
-// three characters (the inward code), e.g. "nw21dl" -> "NW2 1DL". Only touches
-// input that is postcode-shaped (5-7 chars once whitespace is stripped); anything
-// else is returned trimmed so we never mangle a non-postcode value.
+// Canonicalises a UK postcode to upper-case with a space before the inward
+// code, e.g. "nw21dl" -> "NW2 1DL". Only touches postcode-shaped input
+// (5-7 chars); anything else returns trimmed, unchanged.
 function normalisePostcode(value) {
   const compact = String(value || "").toUpperCase().replace(/\s+/g, "");
   if (compact.length < 5 || compact.length > 7) return String(value || "").trim();
@@ -86,18 +84,16 @@ function fillAddressFields(form, a) {
     values.house_number = a.houseNumber;
     values.address_line_1 = a.street;
   } else {
-    // No house-number field on this form: fold the number back onto Line 1 so it
-    // is never dropped (preserves behaviour on forms that haven't added it).
+    // No house-number field on this form: fold the number back onto Line 1.
     values.address_line_1 = [a.houseNumber, a.street].filter(Boolean).join(" ");
   }
   Object.entries(values).forEach(([name, value]) => fillField(form, name, value));
   updateCombinedLine1(form);
 }
 
-// Zoho reads one "First Address Line". When a dedicated house_number field is in
-// use, keep a hidden combined value ("42" + "Bath Road" -> "42 Bath Road") that
-// that Zoho field maps to — recomputed from source each time, so it can never
-// drift or double up. No-op on forms without the house_number field.
+// Zoho reads one "First Address Line". With a dedicated house_number field,
+// keep a hidden combined value ("42"+"Bath Road" -> "42 Bath Road") that
+// field maps to. No-op without house_number.
 function updateCombinedLine1(form) {
   if (!q('[name="house_number"]', form)) return;
   const house = (q('[name="house_number"]', form)?.value || "").trim();
@@ -271,9 +267,9 @@ function parseAddress(components) {
     });
   });
 
-  // Keep the premises identifier (flat / building / house number) SEPARATE from
-  // the street. A postcode-only search returns no number, so houseNumber comes
-  // back "" and the dedicated (required) house_number field prompts the user.
+  // Premises identifier (flat/building/house number) stays separate from the
+  // street. A postcode-only search returns no number, so the required
+  // house_number field is left to prompt the customer.
   const houseNumber = [m.subpremise?.[0], m.premise?.[0], m.street_number?.[0]]
     .filter(Boolean).join(", ");
   const street = m.route?.[0] || m.street_address?.[0] || "";
@@ -515,12 +511,10 @@ function init(form) {
       clearSuggestions(suggestions);
       if (inputWrapper) inputWrapper.hidden = true;
       input.hidden = true;
-      // Route what the user typed to the RIGHT field. People routinely search by
-      // postcode; blindly prefilling Line 1 with it — while Line 1 is required —
-      // let a bare postcode satisfy the form and land in the CRM's street field.
-      // A postcode goes to the postcode field (normalised); anything else stays a
-      // Line 1 prefill. Empty search prefills nothing, so required-Line-1 correctly
-      // forces the user to type their street.
+      // People often search by postcode; prefilling Line 1 with it would let
+      // a bare postcode satisfy required-Line-1 and land in the CRM's street
+      // field. A postcode goes to the postcode field (normalised); anything
+      // else prefills Line 1. Empty search prefills nothing.
       const typed = input.value.trim();
       const hasPostcodeField = !!q('[name="postcode"]', form);
       if (typed && hasPostcodeField && fieldValidators.postcode(typed)) {

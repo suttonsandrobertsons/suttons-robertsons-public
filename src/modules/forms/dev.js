@@ -1,12 +1,10 @@
 import { formConfig } from "./config.js";
 import { formDom, formFields, formValues, formApp, formLogger } from "./core.js";
 
-// Dev mode is controlled SOLELY by whether this module is imported.
-// - Import `./dev.js` → dev mode is ON (logging, dev table, sessionStorage persistence).
-// - Do not import it → dev mode is OFF, zero overhead, no bundle size impact.
-// No URL params, no localStorage flags, no conditional gating.
-// This file is never imported by index.js — add the import manually in your build
-// when you need dev tooling.
+// Dev mode is controlled solely by whether this module is imported: import
+// ./dev.js for logging, dev table, and sessionStorage persistence; leave it
+// out for zero overhead. No URL params or localStorage flags. Toggle via the
+// commented-out import in loader.js; not reachable from index.js.
 
 const SELECTORS = formConfig.selectors;
 

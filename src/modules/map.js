@@ -76,6 +76,8 @@ async function loadMarkerLibrary() {
 	return markerLibraryPromise;
 }
 
+// Webflow lowercases custom attribute names in rendered markup, so a "mapId"
+// attribute set in the Designer can arrive here as "mapid".
 function getMapId(mapElement) {
 	return (
 		mapElement.getAttribute("map-id") ||
@@ -311,6 +313,8 @@ function subscribeToCapabilityChanges(pins, mapElement, map) {
 		return;
 	}
 
+	// mapcapabilities_changed fires repeatedly; re-rendering on every fire would
+	// duplicate the pins.
 	state.capabilityListener = map.addListener("mapcapabilities_changed", () => {
 		renderPins(pins, mapElement, map).catch((error) => {
 			console.error("Failed to render Google Maps pins:", error);

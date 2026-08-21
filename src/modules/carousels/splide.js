@@ -296,6 +296,8 @@ function getSplideOptions(root, settings) {
 			}
 		} else {
 			options.autoplay = true;
+			// Approximates AutoScroll's continuous motion with fixed-interval autoplay
+			// when the extension is absent; 8000 is a rough speed-to-ms conversion.
 			options.interval = Math.max(1000, Math.round(8000 / autoScrollSpeed));
 			options.pauseOnHover =
 				typeof settings.options.autoScrollPauseOnHover === "boolean"
@@ -346,6 +348,8 @@ function updateSplideState(splide, root, settings, isOverflow) {
 }
 
 function updateSplideDragForOverflow(splide, settings, isOverflow) {
+	// Splide's options setter merges these keys into the existing config rather
+	// than replacing it, so this touches drag alone.
 	splide.options = {
 		drag: settings.options.draggable === true && isOverflow,
 	};

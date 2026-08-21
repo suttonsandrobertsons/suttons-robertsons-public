@@ -81,6 +81,8 @@ function normalise(value) {
 function normaliseGeneralType(value) {
 	const type = normalise(value);
 
+	// Webflow's CMS option values are length-limited, so some "other-*" types
+	// arrive truncated as "othr-*". Normalise back to the canonical prefix.
 	if (type.startsWith("othr-")) {
 		return `other-${type.slice(5)}`;
 	}

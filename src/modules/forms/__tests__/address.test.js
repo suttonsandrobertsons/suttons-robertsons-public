@@ -593,7 +593,6 @@ describe("address module (demo mode)", () => {
     expect(formEl.querySelector('[name="address_line_1"]').value).toBe("Bath Road");
     expect(formEl.querySelector('[name="address_line_1_combined"]').value).toBe("Bath Road");
 
-    // user then types their house number -> combined updates live
     const house = formEl.querySelector('[name="house_number"]');
     house.value = "42";
     house.dispatchEvent(new Event("input", { bubbles: true }));

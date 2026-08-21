@@ -1,8 +1,5 @@
 import { test, expect } from "@playwright/test";
 
-// The footer newsletter sign-up must reject invalid email addresses.
-// We only exercise the INVALID case: it should be blocked client-side, so no
-// real subscription is ever sent from these tests.
 const ANY_PAGE = "/dev/forms/gold-calculator"; // footer form is on every page
 
 test.describe("footer newsletter validation", () => {
@@ -12,7 +9,6 @@ test.describe("footer newsletter validation", () => {
     const email = form.locator('input[name="email"]');
     await email.fill("notanemail");
 
-    // Attempt to submit; an invalid email must not produce the success state.
     await form.locator('[type="submit"]').first().click();
 
     // The form engine flags the field invalid and the Webflow success block

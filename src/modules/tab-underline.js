@@ -43,6 +43,9 @@ export function menuUnderline(
 		if (transitionRoot) {
 			transitionRoot.classList.add("no-transition");
 			update();
+			// Reading offsetHeight forces a layout, so "no-transition" is applied
+			// before it's removed — otherwise the class swap can be batched and
+			// the underline still animates into place.
 			transitionRoot.offsetHeight;
 			transitionRoot.classList.remove("no-transition");
 			return true;
